@@ -24,6 +24,15 @@ export default defineConfig({
   },
 
   projects: [
+    // --- API Test Suite (positive + negative) ---
+    {
+      name: 'api-suite',
+      testDir: './tests/api-suite',
+      use: {
+        baseURL: envConfig.apiUrl,
+      },
+    },
+
     // --- Smoke Suite (from Excel test cases) ---
     {
       name: 'smoke-suite',
