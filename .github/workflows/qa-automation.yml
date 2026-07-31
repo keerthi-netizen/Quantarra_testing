@@ -24,10 +24,11 @@ on:
           - 'All'
         default: 'All'
       framework:
-        description: 'Framework type (for audit creation)'
+        description: 'Framework type (only used with "Scenario 3 - Audit Lifecycle")'
         required: false
         type: choice
         options:
+          - N/A
           - SOC 2 Type 2
           - SOC 2 Type 1
           - ISO IEC 27001
@@ -43,7 +44,7 @@ on:
           - NJ MVC Technology Questionnaire
           - Risk Assessment
           - Custom 2
-        default: 'SOC 2 Type 2'
+        default: 'N/A'
 
 jobs:
   test:
