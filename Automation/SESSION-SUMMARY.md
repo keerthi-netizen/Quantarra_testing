@@ -1,63 +1,63 @@
-# Session Summary — 2026-07-31 (01:00 - 05:25 IST)
+# Session Summary — 2026-08-01 (Updated)
 
-## What was built
+## Previous Session: 2026-07-31 (01:00 - 05:25 IST)
+See git history for details.
 
-### Smoke Test Suite (`tests/smoke-suite/`)
-Complete Playwright test suite driven by `tests/New_testcase.xlsx`:
+## Current Session: 2026-07-31 16:43 — 2026-08-01 01:09 IST
 
-| File | Tests | Status |
-|------|-------|--------|
-| `tg1-tg3-authentication.spec.ts` | TC-1, TC-2, TC-3 (6 steps), TC-4 | 9 pass, 2 known failures |
-| `tg5-admin.spec.ts` | TC-11 to TC-16 | All pass |
-| `tg6-audit-lifecycle.spec.ts` | TC-18 (17-step Create Audit) | Pass |
-| `test-data.ts` | Credentials config | — |
+### What was done
 
-### Generic Smoke Tests (`tests/smoke/`)
-Broader environment smoke tests (not Excel-driven):
+1. **Retested PRJAT-880** (Contributor RBAC) — fix verified, moved to Done ✅
+2. **Validated Viewer role** (matric.viewer@keystoneeng.in) — RBAC correct
+3. **Found + filed PRJAT-891** — Home page 403 on /organizations for Contributor/Viewer (assigned to Irina, label: UI)
+4. **Console Error Monitor** — built and ran full-site scan, found 404s on integration SVG icons
+5. **Filed PRJAT-887** — Console 404 errors on Admin > Integrations (12 missing SVG icons, assigned to Jessica)
+6. **API Test Suite** — built 93 tests (positive + negative) across 6 modules (Auth, Users, Frameworks, Audits, Policies, Evidence). 488 test cases documented in Excel Sheet 6.
+7. **GitHub Actions workflow** — parameterized execution with Environment, Scenario (dropdown), Framework Type
+8. **Fixed framework selection** — now uses FRAMEWORK_TYPE env var, handles level dropdowns (CyFun/CIS), scopes Assigned To to dialog
+9. **Aligned to updated Excel** — Scenarios 1-6 mapped to test files, Viewer role added, Scenario 6 placeholder created
 
-| File | Coverage |
+### Current File Structure (smoke-suite)
+
+| File | Scenario |
 |------|----------|
-| `api-core.spec.ts` | Auth, frameworks, audits, users, policies, health |
-| `auth.spec.ts` | Login flows, navigation, JS errors |
-| `audits.spec.ts` | Audit list, detail, all tabs, controls |
-| `dashboard.spec.ts` | Dashboard, Pulse |
-| `policies.spec.ts` | Policy list, create flow |
-| `admin.spec.ts` | Users, roles, business units |
-| `evidence.spec.ts` | Evidence in control detail |
-| `documents.spec.ts` | Documents page |
-| `mc-flows.spec.ts` | Mission Control |
-| `audit-portal.spec.ts` | External Auditor portal |
-| `frameworks.spec.ts` | Framework listing |
+| `tg1-tg3-authentication.spec.ts` | Scenarios 1, 2, 3 (Auth + Navigation Admin + Navigation Contributor) |
+| `tg5-admin.spec.ts` | Scenario 4 (Admin Tab) |
+| `tg6-audit-lifecycle.spec.ts` | Scenario 5 (Create Audit — parameterized framework) |
+| `tg7-audit-existing.spec.ts` | Scenario 6 (Placeholder — awaiting Excel steps) |
+| `console-error-monitor.spec.ts` | Console error scan across all pages |
+| `test-data.ts` | Credentials (Super User, Admin, Contributor, Viewer) |
 
-### Config Changes
-- `.env` — staging URLs updated to `stg.quantarra.com`, credentials set
-- `.env.example` — updated with correct staging URLs
-- `playwright.config.ts` — added `smoke-suite`, `smoke-web`, `smoke-mc`, `smoke-audit`, `smoke-api` projects
-- `package.json` — added `smoke:suite`, `smoke:all`, `smoke:web`, etc. scripts
-- `tsconfig.json` — fixed rootDir to include tests
-- `src/config/environment.ts` — added `override: true` to dotenv
+### GitHub Actions Scenarios (dropdown)
 
-## Known Failures (expected)
+- Scenario 1 - Authentication Flow
+- Scenario 2 - Navigation Workspace (Admin)
+- Scenario 3 - Navigation Workspace (Contributor)
+- Scenario 4 - Admin Tab
+- Scenario 5 - Audit Lifecycle Create
+- Scenario 6 - Audit Lifecycle Existing
+- All - API Tests (Auth, Users, Frameworks, Audits, Policies, Evidence)
+- Console Error Monitor
+- All
+
+### Jira Tickets
+
+| Key | Summary | Status | Assignee |
+|-----|---------|--------|----------|
+| PRJAT-880 | Contributor sees Integrations tab | **Done** ✅ | Irina |
+| PRJAT-887 | Console 404 errors (12 missing SVG icons) | Open | Jessica |
+| PRJAT-891 | Home page 403 on /organizations for Contributor/Viewer | Open | Irina |
+
+### Known Expected Failures
+
 | Test | Reason | Action |
 |------|--------|--------|
-| TC-3 Step 6: Google Drive "Connected" | Integration not connected on this org | Intended — not a bug |
-| TC-4: Contributor sees /integrations | RBAC bug | **PRJAT-880** created, assigned to Irina |
+| TC-3 Step 6: Google Drive "Connected" | Integration not connected on this org | Not a bug — intended state |
+| HIPAA framework in Scenario 5 | Not enabled for this org | Don't select HIPAA in CI |
 
-## Jira Config (for future auto-creation)
-- **Epic:** PRJAT-879
-- **Labels:** RBAC (for RBAC issues)
-- **Assignee:** Irina Gurova (`712020:68ce414a-517a-4c2a-9ee2-4a483c5d6b59`) — all UI fixes
-- **Priority:** Medium
-- **Auth:** `keerthi@quantarra.io` + API token
+### Next Steps
 
-## Run Commands
-```bash
-npm run smoke:suite          # Excel-driven test cases
-npm run smoke:all            # Full smoke (all projects)
-npm run smoke:suite -- --headed  # With visible browser
-```
-
-## Next Steps
-- TG-5 TC-11–16: "Run for Smoketest in prod" column is empty — confirm if these should run in prod
-- Sheet 3 (prod credentials): not yet created — needed for prod runs
-- More test cases: waiting for Excel updates from Keerthi
+- Scenario 6: Complete steps in Excel for Search/Load Existing Audit (TC-3, TC-4, TC-5)
+- Remaining test cases from Excel (R46-R53) — implement when steps are provided
+- Push latest Excel changes to repo
+- Consider: add more frameworks to org permissions if HIPAA testing needed
