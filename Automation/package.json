@@ -1,0 +1,39 @@
+{
+  "name": "quantarra-qa-automation",
+  "version": "1.0.0",
+  "description": "Standalone Playwright QA automation for Quantarra platform",
+  "private": true,
+  "scripts": {
+    "test": "npx playwright test",
+    "test:dev": "cross-env ENV=dev npx playwright test",
+    "test:staging": "cross-env ENV=staging npx playwright test",
+    "test:prod": "cross-env ENV=prod npx playwright test",
+    "smoke": "npx playwright test --project=smoke-web --project=smoke-api",
+    "smoke:suite": "npx playwright test --project=smoke-suite",
+    "smoke:all": "npx playwright test --project=smoke-suite --project=smoke-web --project=smoke-mc --project=smoke-audit --project=smoke-api",
+    "smoke:web": "npx playwright test --project=smoke-web",
+    "smoke:mc": "npx playwright test --project=smoke-mc",
+    "smoke:audit": "npx playwright test --project=smoke-audit",
+    "smoke:api": "npx playwright test --project=smoke-api",
+    "smoke:staging": "cross-env ENV=staging npx playwright test --project=smoke-web --project=smoke-mc --project=smoke-audit --project=smoke-api",
+    "smoke:prod": "cross-env ENV=prod npx playwright test --project=smoke-web --project=smoke-mc --project=smoke-audit --project=smoke-api",
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "npx playwright test --debug",
+    "test:ui": "npx playwright test --ui",
+    "report:html": "npx playwright show-report",
+    "report:excel": "npx tsx src/reporters/generate-excel-report.ts",
+    "jira:create-bug": "npx tsx src/jira/create-bug.ts",
+    "setup": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "@playwright/test": "1.48.0",
+    "dotenv": "16.4.5",
+    "exceljs": "4.4.0",
+    "cross-env": "7.0.3",
+    "tsx": "4.19.0"
+  },
+  "devDependencies": {
+    "typescript": "5.5.4",
+    "@types/node": "20.14.0"
+  }
+}

@@ -1,0 +1,115 @@
+import { defineConfig, devices } from '@playwright/test';
+import { getEnvConfig } from './src/config/environment';
+
+const envConfig = getEnvConfig();
+
+console.log(`\n🎯 Running tests against: ${envConfig.env.toUpperCase()} (${envConfig.baseUrl})\n`);
+
+export default defineConfig({
+  testDir: './tests',
+  timeout: 60000,
+  expect: { timeout: 10000 },
+  retries: 1,
+  workers: 2,
+
+  use: {
+    baseURL: envConfig.baseUrl,
+    headless: true,
+    screenshot: 'only-on-failure',
+    trace: 'on-first-retry',
+    video: 'on-first-retry',
+    viewport: { width: 1400, height: 900 },
+    actionTimeout: 15000,
+    navigationTimeout: 30000,
+  },
+
+  projects: [
+    // --- Smoke Suite (from Excel test cases) ---
+    {
+      name: 'smoke-suite',
+      testDir: './tests/smoke-suite',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.baseUrl,
+      },
+    },
+
+    // --- Smoke tests (original) ---
+    {
+      name: 'smoke-web',
+      testDir: './tests/smoke',
+      testMatch: /^(?!.*mc-)(?!.*audit-portal).*\.spec\.ts$/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.baseUrl,
+      },
+    },
+    {
+      name: 'smoke-mc',
+      testDir: './tests/smoke',
+      testMatch: /mc-.*\.spec\.ts$/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.mcUrl,
+      },
+    },
+    {
+      name: 'smoke-audit',
+      testDir: './tests/smoke',
+      testMatch: /audit-portal.*\.spec\.ts$/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.auditUrl,
+      },
+    },
+    {
+      name: 'smoke-api',
+      testDir: './tests/smoke',
+      testMatch: /api-.*\.spec\.ts$/,
+      use: {
+        baseURL: envConfig.apiUrl,
+      },
+    },
+
+    // --- Original per-app projects ---
+    {
+      name: 'web-chromium',
+      testDir: './tests/web',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.baseUrl,
+      },
+    },
+    {
+      name: 'mc-chromium',
+      testDir: './tests/mission-control',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.mcUrl,
+      },
+    },
+    {
+      name: 'audit-chromium',
+      testDir: './tests/audit-portal',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.auditUrl,
+      },
+    },
+    {
+      name: 'api',
+      testDir: './tests/api',
+      use: {
+        baseURL: envConfig.apiUrl,
+      },
+    },
+  ],
+
+  reporter: [
+    ['list'],
+    ['html', { open: 'never', outputFolder: './reports/html' }],
+    ['json', { outputFile: './reports/results.json' }],
+  ],
+
+  outputDir: './reports/artifacts',
+});
