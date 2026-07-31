@@ -140,8 +140,8 @@ test.describe('TG-6: Audit Lifecycle — Create New Audit', () => {
     await assignedInput.click();
     await page.waitForTimeout(1000);
 
-    // Dropdown shows users immediately — select "Matrix_Admin"
-    const adminUserOption = page.getByText('Matrix_Admin').first();
+    // Dropdown shows users — select "Matrix_Admin" from within the dialog (not header)
+    const adminUserOption = dialog.getByText('Matrix_Admin').last();
     await expect(adminUserOption).toBeVisible({ timeout: 5000 });
     await adminUserOption.click();
     await page.waitForTimeout(500);
