@@ -12,15 +12,26 @@ on:
           - prod
         default: staging
       scenario:
-        description: 'Scenario name (from Excel: "Scenario 1", "Scenario 2", "Scenario 3", "all", "api-suite")'
+        description: 'Test scenario to run'
         required: true
-        type: string
-        default: 'all'
+        type: choice
+        options:
+          - 'Scenario 1 - Authentication Flow'
+          - 'Scenario 2 - Navigation Workspace (Admin)'
+          - 'Scenario 3 - Navigation Workspace (Contributor)'
+          - 'Scenario 4 - Admin Tab'
+          - 'Scenario 5 - Audit Lifecycle Create'
+          - 'Scenario 6 - Audit Lifecycle Existing'
+          - 'All - API Tests (Auth, Users, Frameworks, Audits, Policies, Evidence)'
+          - 'Console Error Monitor'
+          - 'All'
+        default: 'All'
       framework:
-        description: 'Framework type (for audit creation)'
+        description: 'Framework type (only used with "Scenario 3 - Audit Lifecycle")'
         required: false
         type: choice
         options:
+          - N/A
           - SOC 2 Type 2
           - SOC 2 Type 1
           - ISO IEC 27001
@@ -36,7 +47,7 @@ on:
           - NJ MVC Technology Questionnaire
           - Risk Assessment
           - Custom 2
-        default: 'SOC 2 Type 2'
+        default: 'N/A'
 
 jobs:
   test:
@@ -97,51 +108,44 @@ jobs:
           
           # Map scenario input to test file/grep pattern
           case "$SCENARIO" in
-            "Scenario 1"|"scenario 1"|"Authentication")
+            "Scenario 1 - Authentication Flow")
               echo "Running: Scenario 1 — Authentication Flow"
-              npx playwright test tests/smoke-suite/tg1-tg3-authentication.spec.ts --project=smoke-suite --retries=1
+              npx playwright test tests/smoke-suite/tg1-tg3-authentication.spec.ts --project=smoke-suite --retries=1 --grep "Scenario 1"
               ;;
-            "Scenario 2"|"scenario 2"|"Admin")
-              echo "Running: Scenario 2 — Admin Tab Navigation"
+            "Scenario 2 - Navigation Workspace (Admin)")
+              echo "Running: Scenario 2 — Navigation Workspace (Admin)"
+              npx playwright test tests/smoke-suite/tg1-tg3-authentication.spec.ts --project=smoke-suite --retries=1 --grep "Scenario 2"
+              ;;
+            "Scenario 3 - Navigation Workspace (Contributor)")
+              echo "Running: Scenario 3 — Navigation Workspace (Contributor)"
+              npx playwright test tests/smoke-suite/tg1-tg3-authentication.spec.ts --project=smoke-suite --retries=1 --grep "Scenario 3"
+              ;;
+            "Scenario 4 - Admin Tab")
+              echo "Running: Scenario 4 — Admin Tab"
               npx playwright test tests/smoke-suite/tg5-admin.spec.ts --project=smoke-suite --retries=1
               ;;
-            "Scenario 3"|"scenario 3"|"Audit Lifecycle")
-              echo "Running: Scenario 3 — Audit Lifecycle"
+            "Scenario 5 - Audit Lifecycle Create")
+              echo "Running: Scenario 5 — Audit Lifecycle Create"
               npx playwright test tests/smoke-suite/tg6-audit-lifecycle.spec.ts --project=smoke-suite --retries=1
               ;;
-            "console-errors")
+            "Scenario 6 - Audit Lifecycle Existing")
+              echo "Running: Scenario 6 — Audit Lifecycle Existing"
+              npx playwright test tests/smoke-suite/tg7-audit-existing.spec.ts --project=smoke-suite --retries=1
+              ;;
+            "All - API Tests (Auth, Users, Frameworks, Audits, Policies, Evidence)")
+              echo "Running: All API Tests"
+              npx playwright test --project=api-suite --retries=1
+              ;;
+            "Console Error Monitor")
               echo "Running: Console Error Monitor"
               npx playwright test tests/smoke-suite/console-error-monitor.spec.ts --project=smoke-suite --retries=0 --timeout=180000
               ;;
-            "api-suite")
-              echo "Running: Full API Test Suite"
-              npx playwright test --project=api-suite --retries=1
-              ;;
-            "api-auth")
-              npx playwright test tests/api-suite/auth.spec.ts --project=api-suite --retries=1
-              ;;
-            "api-users")
-              npx playwright test tests/api-suite/users.spec.ts --project=api-suite --retries=1
-              ;;
-            "api-frameworks")
-              npx playwright test tests/api-suite/frameworks.spec.ts --project=api-suite --retries=1
-              ;;
-            "api-audits")
-              npx playwright test tests/api-suite/audits.spec.ts --project=api-suite --retries=1
-              ;;
-            "api-policies")
-              npx playwright test tests/api-suite/policies.spec.ts --project=api-suite --retries=1
-              ;;
-            "api-evidence")
-              npx playwright test tests/api-suite/evidence.spec.ts --project=api-suite --retries=1
-              ;;
-            "all"|"All")
+            "All")
               echo "Running: ALL test suites"
               npx playwright test --project=smoke-suite --project=api-suite --retries=1
               ;;
             *)
               echo "⚠️ Unknown scenario: $SCENARIO"
-              echo "Available: Scenario 1, Scenario 2, Scenario 3, api-suite, api-auth, api-users, api-frameworks, api-audits, api-policies, api-evidence, console-errors, all"
               exit 1
               ;;
           esac

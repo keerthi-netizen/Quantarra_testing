@@ -38,6 +38,11 @@ const TEST_USERS: TestCredential[] = [
     email: 'prasanna.d@keystoneeng.in',
     password: 'Quantarra2026!',
   },
+  {
+    role: 'Viewer',
+    email: 'matric.viewer@keystoneeng.in',
+    password: 'Quantarra2026!',
+  },
 ];
 
 /**
@@ -78,4 +83,9 @@ export function getSmokeContributor(): TestCredential {
 /** Super User */
 export function getSmokeSuperUser(): TestCredential {
   return getSmokeCreds('Super User');
+}
+
+/** Viewer user */
+export function getSmokeViewer(): TestCredential {
+  return getSmokeCreds('Viewer');
 }
