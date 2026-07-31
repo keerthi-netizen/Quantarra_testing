@@ -62,7 +62,7 @@ export const JIRA_DEFECT_CONFIG: JiraDefectConfig = {
 /**
  * Returns credentials for a specific role.
  */
-export function getSmokeCreds(role: 'Super User' | 'Administrator' | 'Contributor'): TestCredential {
+export function getSmokeCreds(role: 'Super User' | 'Administrator' | 'Contributor' | 'Viewer'): TestCredential {
   const user = TEST_USERS.find((u) => u.role === role);
   if (!user) {
     throw new Error(`No test credential found for role "${role}"`);
