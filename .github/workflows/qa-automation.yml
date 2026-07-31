@@ -1,0 +1,189 @@
+name: QA Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+        default: staging
+      scenario:
+        description: 'Scenario name (from Excel: "Scenario 1", "Scenario 2", "Scenario 3", "all", "api-suite")'
+        required: true
+        type: string
+        default: 'all'
+      framework:
+        description: 'Framework type (for audit creation)'
+        required: false
+        type: choice
+        options:
+          - SOC 2 Type 2
+          - SOC 2 Type 1
+          - ISO IEC 27001
+          - ISO IEC 27701:2025
+          - CyberFundamentals 2.0
+          - CyFun (CyberFundamentals)
+          - CIS v8.1 (Center for Internet Security) Version 8
+          - CIS v8 (Center for Internet Security) Version 8
+          - HIPAA
+          - SOX (Sarbanes-Oxley)
+          - FERPA (Family Educational Rights and Privacy Act)
+          - NOM-035-STPS-2018
+          - NJ MVC Technology Questionnaire
+          - Risk Assessment
+          - Custom 2
+        default: 'SOC 2 Type 2'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      ENV: ${{ github.event.inputs.environment }}
+      FRAMEWORK_TYPE: ${{ github.event.inputs.framework }}
+      TEST_SCENARIO: ${{ github.event.inputs.scenario }}
+      # --- Credentials & URLs (hardcoded) ---
+      ADMIN_EMAIL: keerthikumar.kothandapani@gmail.com
+      ADMIN_PASSWORD: Quantarra2026!
+      CONTRIBUTOR_EMAIL: prasanna.d@keystoneeng.in
+      CONTRIBUTOR_PASSWORD: Quantarra2026!
+      MC_ADMIN_EMAIL: keerthi@quantarra.io
+      MC_ADMIN_PASSWORD: Quantarra2026!
+      STAGING_BASE_URL: https://stg.quantarra.com
+      STAGING_MC_URL: https://stg.quantarra.com:4002
+      STAGING_AUDIT_URL: https://stg.quantarra.com:4003
+      STAGING_API_URL: https://stg.quantarra.com/api/v1
+      PROD_BASE_URL: https://app.quantarra.com
+      PROD_MC_URL: https://mc.quantarra.com
+      PROD_AUDIT_URL: https://audit.quantarra.com
+      PROD_API_URL: https://app.quantarra.com/api/v1
+      JIRA_BASE_URL: https://quantarra.atlassian.net
+      JIRA_EMAIL: keerthi@quantarra.io
+      JIRA_PROJECT_KEY: PRJAT
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: Automation/package-lock.json
+
+      - name: Install dependencies
+        working-directory: Automation
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: Automation
+        run: npx playwright install chromium --with-deps
+
+      - name: Run tests
+        working-directory: Automation
+        run: |
+          SCENARIO="${{ github.event.inputs.scenario }}"
+          
+          echo "🎯 Environment: $ENV"
+          echo "🎯 Scenario: $SCENARIO"
+          echo "🎯 Framework: $FRAMEWORK_TYPE"
+          echo ""
+          
+          # Map scenario input to test file/grep pattern
+          case "$SCENARIO" in
+            "Scenario 1"|"scenario 1"|"Authentication")
+              echo "Running: Scenario 1 — Authentication Flow"
+              npx playwright test tests/smoke-suite/tg1-tg3-authentication.spec.ts --project=smoke-suite --retries=1
+              ;;
+            "Scenario 2"|"scenario 2"|"Admin")
+              echo "Running: Scenario 2 — Admin Tab Navigation"
+              npx playwright test tests/smoke-suite/tg5-admin.spec.ts --project=smoke-suite --retries=1
+              ;;
+            "Scenario 3"|"scenario 3"|"Audit Lifecycle")
+              echo "Running: Scenario 3 — Audit Lifecycle"
+              npx playwright test tests/smoke-suite/tg6-audit-lifecycle.spec.ts --project=smoke-suite --retries=1
+              ;;
+            "console-errors")
+              echo "Running: Console Error Monitor"
+              npx playwright test tests/smoke-suite/console-error-monitor.spec.ts --project=smoke-suite --retries=0 --timeout=180000
+              ;;
+            "api-suite")
+              echo "Running: Full API Test Suite"
+              npx playwright test --project=api-suite --retries=1
+              ;;
+            "api-auth")
+              npx playwright test tests/api-suite/auth.spec.ts --project=api-suite --retries=1
+              ;;
+            "api-users")
+              npx playwright test tests/api-suite/users.spec.ts --project=api-suite --retries=1
+              ;;
+            "api-frameworks")
+              npx playwright test tests/api-suite/frameworks.spec.ts --project=api-suite --retries=1
+              ;;
+            "api-audits")
+              npx playwright test tests/api-suite/audits.spec.ts --project=api-suite --retries=1
+              ;;
+            "api-policies")
+              npx playwright test tests/api-suite/policies.spec.ts --project=api-suite --retries=1
+              ;;
+            "api-evidence")
+              npx playwright test tests/api-suite/evidence.spec.ts --project=api-suite --retries=1
+              ;;
+            "all"|"All")
+              echo "Running: ALL test suites"
+              npx playwright test --project=smoke-suite --project=api-suite --retries=1
+              ;;
+            *)
+              echo "⚠️ Unknown scenario: $SCENARIO"
+              echo "Available: Scenario 1, Scenario 2, Scenario 3, api-suite, api-auth, api-users, api-frameworks, api-audits, api-policies, api-evidence, console-errors, all"
+              exit 1
+              ;;
+          esac
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ github.event.inputs.environment }}-${{ github.run_number }}
+          path: |
+            Automation/reports/html/
+            Automation/reports/results.json
+          retention-days: 30
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.run_number }}
+          path: Automation/reports/artifacts/**/*.png
+          retention-days: 14
+
+      - name: Test Summary
+        if: always()
+        working-directory: Automation
+        run: |
+          echo "## QA Automation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | **${{ github.event.inputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Scenario | **${{ github.event.inputs.scenario }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Framework | ${{ github.event.inputs.framework }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f reports/results.json ]; then
+            PASSED=$(cat reports/results.json | jq '.stats.expected // 0')
+            FAILED=$(cat reports/results.json | jq '.stats.unexpected // 0')
+            SKIPPED=$(cat reports/results.json | jq '.stats.skipped // 0')
+            DURATION=$(cat reports/results.json | jq '(.stats.duration // 0) / 1000 | floor')
+            echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏱️ Duration | ${DURATION}s |" >> $GITHUB_STEP_SUMMARY
+          fi
