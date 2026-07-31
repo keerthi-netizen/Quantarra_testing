@@ -29,7 +29,10 @@ function generateAuditName(): string {
   const now = new Date();
   const date = now.toISOString().slice(0, 10).replace(/-/g, '');
   const increment = String(Math.floor(Math.random() * 99) + 1).padStart(2, '0');
-  return `ST-SOC2-${date}-${increment}`;
+  const fw = process.env.FRAMEWORK_TYPE && process.env.FRAMEWORK_TYPE !== 'N/A'
+    ? process.env.FRAMEWORK_TYPE.substring(0, 10).replace(/\s+/g, '')
+    : 'SOC2';
+  return `ST-${fw}-${date}-${increment}`;
 }
 
 function getTodayDate(): string {
@@ -101,19 +104,22 @@ test.describe('TG-6: Audit Lifecycle — Create New Audit', () => {
     // === Step 7: Button still disabled (no framework yet) ===
     await expect(submitBtn).toBeDisabled();
 
-    // === Step 8: Select Framework — SOC 2 Type 2 ===
+    // === Step 8: Select Framework — from FRAMEWORK_TYPE env or default SOC 2 Type 2 ===
+    const frameworkName = process.env.FRAMEWORK_TYPE && process.env.FRAMEWORK_TYPE !== 'N/A'
+      ? process.env.FRAMEWORK_TYPE
+      : 'SOC 2 Type 2';
+    const searchTerm = frameworkName.substring(0, 5); // First 5 chars for search
+
     const frameworkInput = page.locator('input[placeholder="Search frameworks..."]');
     await frameworkInput.click();
     await page.waitForTimeout(500);
-    await frameworkInput.fill('SOC');
+    await frameworkInput.fill(searchTerm);
     await page.waitForTimeout(1000);
 
-    // Framework list items contain badge prefix (e.g. "S2") + name "SOC 2 Type 2"
-    // Use text matching that finds the element containing "SOC 2 Type 2"
-    const soc2Option = page.locator('div').filter({ hasText: /^S2SOC 2 Type 2$/ }).first()
-      .or(page.locator('div').filter({ hasText: /SOC 2 Type 2/ }).last());
-    await expect(soc2Option).toBeVisible({ timeout: 5000 });
-    await soc2Option.click();
+    // Framework list items — find the matching one
+    const fwOption = page.locator('div').filter({ hasText: new RegExp(frameworkName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).last();
+    await expect(fwOption).toBeVisible({ timeout: 5000 });
+    await fwOption.click();
     await page.waitForTimeout(500);
 
     // === Step 9: "Create audit" button should be ENABLED ===
