@@ -108,7 +108,7 @@ test.describe('TG-6: Audit Lifecycle — Create New Audit', () => {
     const frameworkName = process.env.FRAMEWORK_TYPE && process.env.FRAMEWORK_TYPE !== 'N/A'
       ? process.env.FRAMEWORK_TYPE
       : 'SOC 2 Type 2';
-    const searchTerm = frameworkName.substring(0, 5); // First 5 chars for search
+    const searchTerm = frameworkName.substring(0, Math.min(frameworkName.length, 8));
 
     const frameworkInput = page.locator('input[placeholder="Search frameworks..."]');
     await frameworkInput.click();
@@ -116,14 +116,30 @@ test.describe('TG-6: Audit Lifecycle — Create New Audit', () => {
     await frameworkInput.fill(searchTerm);
     await page.waitForTimeout(1000);
 
-    // Framework list items — find the matching one
-    const fwOption = page.locator('div').filter({ hasText: new RegExp(frameworkName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).last();
-    await expect(fwOption).toBeVisible({ timeout: 5000 });
-    await fwOption.click();
-    await page.waitForTimeout(500);
+    // Click the framework option — use getByText with exact or partial match
+    const fwOption = dialog.getByText(frameworkName, { exact: true }).first();
+    if (await fwOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await fwOption.click();
+    } else {
+      // Some frameworks have badge prefix — try clicking text that contains the name
+      const fwFallback = dialog.getByText(frameworkName).first();
+      await fwFallback.click({ timeout: 5000 });
+    }
+    await page.waitForTimeout(1000);
+
+    // Some frameworks (CyFun, CIS) require an "Assurance level" selection
+    const levelSelect = dialog.locator('select');
+    if (await levelSelect.isVisible({ timeout: 2000 }).catch(() => false)) {
+      const options = await levelSelect.locator('option').allTextContents();
+      const firstLevel = options.find(o => o && !o.includes('Select'));
+      if (firstLevel) {
+        await levelSelect.selectOption({ label: firstLevel });
+        await page.waitForTimeout(500);
+      }
+    }
 
     // === Step 9: "Create audit" button should be ENABLED ===
-    await expect(submitBtn).toBeEnabled();
+    await expect(submitBtn).toBeEnabled({ timeout: 5000 });
 
     // === Step 10: Start date — today ===
     const startDateInput = page.locator('input#audit-start');
