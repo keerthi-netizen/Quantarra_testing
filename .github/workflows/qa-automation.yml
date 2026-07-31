@@ -19,13 +19,7 @@ on:
           - 'Scenario 1 - Authentication Flow'
           - 'Scenario 2 - Navigation Admin Tab'
           - 'Scenario 3 - Audit Lifecycle'
-          - 'API Suite - All API Tests'
-          - 'API - Auth'
-          - 'API - Users'
-          - 'API - Frameworks'
-          - 'API - Audits'
-          - 'API - Policies'
-          - 'API - Evidence'
+          - 'All - API Tests (Auth, Users, Frameworks, Audits, Policies, Evidence)'
           - 'Console Error Monitor'
           - 'All'
         default: 'All'
@@ -122,31 +116,13 @@ jobs:
               echo "Running: Scenario 3 — Audit Lifecycle"
               npx playwright test tests/smoke-suite/tg6-audit-lifecycle.spec.ts --project=smoke-suite --retries=1
               ;;
+            "All - API Tests (Auth, Users, Frameworks, Audits, Policies, Evidence)")
+              echo "Running: All API Tests"
+              npx playwright test --project=api-suite --retries=1
+              ;;
             "Console Error Monitor")
               echo "Running: Console Error Monitor"
               npx playwright test tests/smoke-suite/console-error-monitor.spec.ts --project=smoke-suite --retries=0 --timeout=180000
-              ;;
-            "API Suite - All API Tests")
-              echo "Running: Full API Test Suite"
-              npx playwright test --project=api-suite --retries=1
-              ;;
-            "API - Auth")
-              npx playwright test tests/api-suite/auth.spec.ts --project=api-suite --retries=1
-              ;;
-            "API - Users")
-              npx playwright test tests/api-suite/users.spec.ts --project=api-suite --retries=1
-              ;;
-            "API - Frameworks")
-              npx playwright test tests/api-suite/frameworks.spec.ts --project=api-suite --retries=1
-              ;;
-            "API - Audits")
-              npx playwright test tests/api-suite/audits.spec.ts --project=api-suite --retries=1
-              ;;
-            "API - Policies")
-              npx playwright test tests/api-suite/policies.spec.ts --project=api-suite --retries=1
-              ;;
-            "API - Evidence")
-              npx playwright test tests/api-suite/evidence.spec.ts --project=api-suite --retries=1
               ;;
             "All")
               echo "Running: ALL test suites"
