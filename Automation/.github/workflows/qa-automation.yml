@@ -1,6 +1,7 @@
 name: QA Automation
 
 on:
+  # Manual trigger (from this repo's Actions tab)
   workflow_dispatch:
     inputs:
       environment:
@@ -27,7 +28,7 @@ on:
           - 'All'
         default: 'All'
       framework:
-        description: 'Framework type (only used with "Scenario 3 - Audit Lifecycle")'
+        description: 'Framework type (only used with "Scenario 5 - Audit Lifecycle Create")'
         required: false
         type: choice
         options:
@@ -49,22 +50,65 @@ on:
           - Custom 2
         default: 'N/A'
 
+  # Reusable workflow trigger (called from other repos' pipelines)
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Target environment (staging or prod)'
+        required: true
+        type: string
+      scenario:
+        description: 'Test scenario to run'
+        required: false
+        type: string
+        default: 'All'
+      framework:
+        description: 'Framework type for audit creation tests'
+        required: false
+        type: string
+        default: 'N/A'
+    outputs:
+      test_result:
+        description: 'Overall test result (passed/failed)'
+        value: ${{ jobs.test.outputs.result }}
+      tests_passed:
+        description: 'Number of tests passed'
+        value: ${{ jobs.test.outputs.passed }}
+      tests_failed:
+        description: 'Number of tests failed'
+        value: ${{ jobs.test.outputs.failed }}
+    secrets:
+      ADMIN_PASSWORD:
+        required: false
+      CONTRIBUTOR_PASSWORD:
+        required: false
+      MC_ADMIN_PASSWORD:
+        required: false
+      JIRA_API_TOKEN:
+        required: false
+
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    outputs:
+      result: ${{ steps.outcome.outputs.result }}
+      passed: ${{ steps.outcome.outputs.passed }}
+      failed: ${{ steps.outcome.outputs.failed }}
+
     env:
-      ENV: ${{ github.event.inputs.environment }}
-      FRAMEWORK_TYPE: ${{ github.event.inputs.framework }}
-      TEST_SCENARIO: ${{ github.event.inputs.scenario }}
-      # --- Credentials & URLs (hardcoded) ---
+      ENV: ${{ inputs.environment }}
+      FRAMEWORK_TYPE: ${{ inputs.framework || 'N/A' }}
+      TEST_SCENARIO: ${{ inputs.scenario || 'All' }}
+      # --- Credentials (use secrets if passed, fallback to defaults) ---
       ADMIN_EMAIL: keerthikumar.kothandapani@gmail.com
-      ADMIN_PASSWORD: Quantarra2026!
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || 'Quantarra2026!' }}
       CONTRIBUTOR_EMAIL: prasanna.d@keystoneeng.in
-      CONTRIBUTOR_PASSWORD: Quantarra2026!
+      CONTRIBUTOR_PASSWORD: ${{ secrets.CONTRIBUTOR_PASSWORD || 'Quantarra2026!' }}
       MC_ADMIN_EMAIL: keerthi@quantarra.io
-      MC_ADMIN_PASSWORD: Quantarra2026!
+      MC_ADMIN_PASSWORD: ${{ secrets.MC_ADMIN_PASSWORD || 'Quantarra2026!' }}
+      # --- URLs ---
       STAGING_BASE_URL: https://stg.quantarra.com
       STAGING_MC_URL: https://stg.quantarra.com:4002
       STAGING_AUDIT_URL: https://stg.quantarra.com:4003
@@ -73,12 +117,14 @@ jobs:
       PROD_MC_URL: https://mc.quantarra.com
       PROD_AUDIT_URL: https://audit.quantarra.com
       PROD_API_URL: https://app.quantarra.com/api/v1
+      # --- Jira ---
       JIRA_BASE_URL: https://quantarra.atlassian.net
       JIRA_EMAIL: keerthi@quantarra.io
       JIRA_PROJECT_KEY: PRJAT
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN || '' }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout QA automation code
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -97,9 +143,10 @@ jobs:
         run: npx playwright install chromium --with-deps
 
       - name: Run tests
+        id: run-tests
         working-directory: Automation
         run: |
-          SCENARIO="${{ github.event.inputs.scenario }}"
+          SCENARIO="${{ inputs.scenario || 'All' }}"
           
           echo "🎯 Environment: $ENV"
           echo "🎯 Scenario: $SCENARIO"
@@ -130,7 +177,7 @@ jobs:
               ;;
             "Scenario 6 - Audit Lifecycle Existing")
               echo "Running: Scenario 6 — Audit Lifecycle Existing"
-              npx playwright test tests/smoke-suite/tg7-audit-existing.spec.ts --project=smoke-suite --retries=1
+              npx playwright test tests/smoke-suite/tg6-audit-search.spec.ts tests/smoke-suite/tg6-audit-dashboard.spec.ts --project=smoke-suite --retries=1
               ;;
             "All - API Tests (Auth, Users, Frameworks, Audits, Policies, Evidence)")
               echo "Running: All API Tests"
@@ -145,16 +192,37 @@ jobs:
               npx playwright test --project=smoke-suite --project=api-suite --retries=1
               ;;
             *)
-              echo "⚠️ Unknown scenario: $SCENARIO"
-              exit 1
+              echo "⚠️ Unknown scenario: $SCENARIO — running All"
+              npx playwright test --project=smoke-suite --project=api-suite --retries=1
               ;;
           esac
+
+      - name: Capture test outcome
+        id: outcome
+        if: always()
+        working-directory: Automation
+        run: |
+          if [ -f reports/results.json ]; then
+            PASSED=$(cat reports/results.json | jq '.stats.expected // 0')
+            FAILED=$(cat reports/results.json | jq '.stats.unexpected // 0')
+            echo "passed=$PASSED" >> $GITHUB_OUTPUT
+            echo "failed=$FAILED" >> $GITHUB_OUTPUT
+            if [ "$FAILED" -eq "0" ]; then
+              echo "result=passed" >> $GITHUB_OUTPUT
+            else
+              echo "result=failed" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "passed=0" >> $GITHUB_OUTPUT
+            echo "failed=1" >> $GITHUB_OUTPUT
+            echo "result=failed" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: report-${{ github.event.inputs.environment }}-${{ github.run_number }}
+          name: qa-report-${{ inputs.environment }}-${{ github.run_number }}
           path: |
             Automation/reports/html/
             Automation/reports/results.json
@@ -164,7 +232,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: screenshots-${{ github.run_number }}
+          name: qa-screenshots-${{ github.run_number }}
           path: Automation/reports/artifacts/**/*.png
           retention-days: 14
 
@@ -176,9 +244,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | **${{ github.event.inputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Scenario | **${{ github.event.inputs.scenario }}** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Framework | ${{ github.event.inputs.framework }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | **${{ inputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Scenario | **${{ inputs.scenario || 'All' }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Framework | ${{ inputs.framework || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ -f reports/results.json ]; then

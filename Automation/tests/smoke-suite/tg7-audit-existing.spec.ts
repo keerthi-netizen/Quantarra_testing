@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './base-fixture';
 import { dismissWizard } from '../../src/helpers/auth';
 import { getSmokeAdmin } from './test-data';
 
