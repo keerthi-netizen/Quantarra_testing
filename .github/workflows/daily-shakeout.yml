@@ -86,9 +86,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: shakeout-poc-results
-          path: |
-            Automation/reports/results.json
-            Automation/reports/html/
+          path: Automation/reports/results.json
           retention-days: 30
 
       - name: Upload POC screenshots
@@ -132,9 +130,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: shakeout-prod-results
-          path: |
-            Automation/reports/results.json
-            Automation/reports/html/
+          path: Automation/reports/results.json
           retention-days: 30
 
       - name: Upload Prod screenshots
@@ -167,14 +163,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: shakeout-poc-results
-          path: Automation/reports/poc/
+          path: Automation/reports/poc
         continue-on-error: true
 
       - name: Download Prod results
         uses: actions/download-artifact@v4
         with:
           name: shakeout-prod-results
-          path: Automation/reports/prod/
+          path: Automation/reports/prod
         continue-on-error: true
 
       - name: Generate consolidated report & notify
