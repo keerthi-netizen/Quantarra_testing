@@ -24,6 +24,16 @@ export default defineConfig({
   },
 
   projects: [
+    // --- Daily Shakeout (POC + Prod environment health) ---
+    {
+      name: 'daily-shakeout',
+      testDir: './tests/daily-shakeout',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.baseUrl,
+      },
+    },
+
     // --- API Test Suite (positive + negative) ---
     {
       name: 'api-suite',

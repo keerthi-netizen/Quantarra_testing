@@ -1,10 +1,10 @@
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
-// Load .env from project root (override: true ensures .env values win over system env vars)
-dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
+// Load .env from project root (no override — system env vars from CI take priority)
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-export type Environment = 'dev' | 'staging' | 'prod';
+export type Environment = 'dev' | 'staging' | 'poc' | 'prod';
 
 export interface EnvConfig {
   env: Environment;
@@ -40,8 +40,8 @@ function resolveEnvironment(): Environment {
   }
 
   const env = process.env.ENV || 'dev';
-  if (!['dev', 'staging', 'prod'].includes(env)) {
-    throw new Error(`Invalid ENV value: "${env}". Must be one of: dev, staging, prod`);
+  if (!['dev', 'staging', 'poc', 'prod'].includes(env)) {
+    throw new Error(`Invalid ENV value: "${env}". Must be one of: dev, staging, poc, prod`);
   }
 
   return env as Environment;
