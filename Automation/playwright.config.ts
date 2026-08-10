@@ -28,6 +28,7 @@ export default defineConfig({
     {
       name: 'daily-shakeout',
       testDir: './tests/daily-shakeout',
+      fullyParallel: false,
       use: {
         ...devices['Desktop Chrome'],
         baseURL: envConfig.baseUrl,
