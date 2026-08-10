@@ -38,6 +38,10 @@ env:
   # Shared credentials (contributor for RBAC tests)
   CONTRIBUTOR_EMAIL: ${{ secrets.CONTRIBUTOR_EMAIL }}
   CONTRIBUTOR_PASSWORD: ${{ secrets.CONTRIBUTOR_PASSWORD }}
+  POC_CONTRIBUTOR_EMAIL: ${{ secrets.POC_CONTRIBUTOR_EMAIL }}
+  POC_CONTRIBUTOR_PASSWORD: ${{ secrets.POC_CONTRIBUTOR_PASSWORD }}
+  PROD_CONTRIBUTOR_EMAIL: ${{ secrets.PROD_CONTRIBUTOR_EMAIL }}
+  PROD_CONTRIBUTOR_PASSWORD: ${{ secrets.PROD_CONTRIBUTOR_PASSWORD }}
 
   # Jira (for auto-ticket creation on failure)
   JIRA_BASE_URL: https://quantarra.atlassian.net

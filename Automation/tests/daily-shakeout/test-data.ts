@@ -52,9 +52,32 @@ export function getShakeoutAdmin(): ShakeoutCredential {
  * Returns the contributor credential for RBAC navigation checks.
  */
 export function getShakeoutContributor(): ShakeoutCredential {
-  return {
-    email: process.env.CONTRIBUTOR_EMAIL || 'contributor@acme.com',
-    password: process.env.CONTRIBUTOR_PASSWORD || 'Quantarra2026!',
-    role: 'Contributor',
-  };
+  const env = getEnvConfig().env;
+
+  switch (env) {
+    case 'poc':
+      return {
+        email: process.env.POC_CONTRIBUTOR_EMAIL || 'keerthikumar.kothandapani@gmail.com',
+        password: process.env.POC_CONTRIBUTOR_PASSWORD || 'Quantarra2026!',
+        role: 'Contributor',
+      };
+    case 'prod':
+      return {
+        email: process.env.PROD_CONTRIBUTOR_EMAIL || 'sales1@keystoneeng.in',
+        password: process.env.PROD_CONTRIBUTOR_PASSWORD || 'Quantarra2026!',
+        role: 'Contributor',
+      };
+    case 'staging':
+      return {
+        email: process.env.CONTRIBUTOR_EMAIL || 'prasanna.d@keystoneeng.in',
+        password: process.env.CONTRIBUTOR_PASSWORD || 'Quantarra2026!',
+        role: 'Contributor',
+      };
+    default:
+      return {
+        email: process.env.CONTRIBUTOR_EMAIL || 'contributor@acme.com',
+        password: process.env.CONTRIBUTOR_PASSWORD || 'Quantarra2026!',
+        role: 'Contributor',
+      };
+  }
 }
