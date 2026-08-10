@@ -78,8 +78,8 @@ jobs:
         working-directory: Automation
         env:
           ENV: poc
-        run: npx playwright test --project=daily-shakeout --reporter=json,html
-        continue-on-error: true
+          PLAYWRIGHT_JSON_OUTPUT_FILE: reports/results.json
+        run: npx playwright test --project=daily-shakeout --reporter=list,json,html || true
 
       - name: Upload POC results
         if: always()
@@ -122,8 +122,8 @@ jobs:
         working-directory: Automation
         env:
           ENV: prod
-        run: npx playwright test --project=daily-shakeout --reporter=json,html
-        continue-on-error: true
+          PLAYWRIGHT_JSON_OUTPUT_FILE: reports/results.json
+        run: npx playwright test --project=daily-shakeout --reporter=list,json,html || true
 
       - name: Upload Prod results
         if: always()
