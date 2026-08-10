@@ -133,7 +133,18 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
     return null;
   }
 
+  const auth = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
   const today = new Date().toISOString().slice(0, 10);
+
+  // --- DEDUPLICATION: Check for existing open shakeout tickets ---
+  const existingKey = await findExistingShakeoutTicket(auth);
+  if (existingKey) {
+    console.log(`🔄 Open shakeout ticket found: ${existingKey} — adding comment instead of new ticket`);
+    await addJiraComment(auth, existingKey, failedTests, today);
+    return existingKey;
+  }
+
+  // --- No existing ticket: create new one ---
   const summary = `[Shakeout] ${failedTests.length} test(s) failed — ${today}`;
 
   const description = {
@@ -193,8 +204,6 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
     },
   });
 
-  const auth = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
-
   return new Promise((resolve) => {
     const req = https.request(
       {
@@ -227,6 +236,118 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
       resolve(null);
     });
     req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Search for an existing open shakeout ticket (not Done/Closed).
+ * Returns the ticket key if found, null otherwise.
+ */
+async function findExistingShakeoutTicket(auth: string): Promise<string | null> {
+  const jql = 'project=PRJAT AND labels=shakeout AND labels=auto-created AND status != Done ORDER BY created DESC';
+  const body = JSON.stringify({
+    jql,
+    maxResults: 1,
+    fields: ['summary', 'status'],
+  });
+
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        hostname: 'quantarra.atlassian.net',
+        path: '/rest/api/3/search/jql',
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            const issues = parsed.issues || [];
+            if (issues.length > 0) {
+              resolve(issues[0].key);
+            } else {
+              resolve(null);
+            }
+          } catch {
+            console.log(`⚠️  Jira search failed: ${data}`);
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on('error', (e) => {
+      console.log(`⚠️  Jira search request failed: ${e.message}`);
+      resolve(null);
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Add a comment to an existing shakeout ticket with today's failures.
+ */
+async function addJiraComment(auth: string, ticketKey: string, failedTests: string[], date: string): Promise<void> {
+  const comment = {
+    body: {
+      type: 'doc',
+      version: 1,
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: `Shakeout re-run (${date}) — ${failedTests.length} test(s) still failing:`, marks: [{ type: 'strong' }] },
+          ],
+        },
+        {
+          type: 'bulletList',
+          content: failedTests.map((t) => ({
+            type: 'listItem',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }],
+          })),
+        },
+      ],
+    },
+  };
+
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        hostname: 'quantarra.atlassian.net',
+        path: `/rest/api/3/issue/${ticketKey}/comment`,
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          if (res.statusCode === 201) {
+            console.log(`💬 Comment added to ${ticketKey}`);
+          } else {
+            console.log(`⚠️  Failed to add comment to ${ticketKey}: ${data}`);
+          }
+          resolve();
+        });
+      },
+    );
+    req.on('error', (e) => {
+      console.log(`⚠️  Comment request failed: ${e.message}`);
+      resolve();
+    });
+    req.write(JSON.stringify(comment));
     req.end();
   });
 }
