@@ -271,13 +271,22 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
     ],
   };
 
+  // Determine priority — login/auth failures are Highest, others are High
+  const isLoginFailure = failedTests.some(
+    (t) => t.toLowerCase().includes('login') ||
+           t.toLowerCase().includes('auth') ||
+           t.toLowerCase().includes('health endpoint') ||
+           t.toLowerCase().includes('token'),
+  );
+  const priority = isLoginFailure ? 'Highest' : 'High';
+
   const body = JSON.stringify({
     fields: {
       project: { key: process.env.JIRA_PROJECT_KEY || 'PRJAT' },
       summary,
       description,
       issuetype: { name: 'Bug' },
-      priority: { name: 'High' },
+      priority: { name: priority },
       labels: ['shakeout', 'environment-health', 'auto-created'],
     },
   });
