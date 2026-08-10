@@ -24,6 +24,30 @@ interface TestResult {
   error?: string;
 }
 
+/**
+ * Strip ANSI escape codes and clean up Playwright error messages for readability.
+ */
+function cleanError(raw: string): string {
+  if (!raw) {
+    return '';
+  }
+
+  return raw
+    // Remove ANSI escape codes
+    .replace(/\u001b\[\d+m/g, '')
+    .replace(/␛\[\d+m/g, '')
+    .replace(/\[[\d;]*m/g, '')
+    // Remove "expect(locator).not.toBeVisible()" noise
+    .replace(/expect\(\s*locator\s*\)\s*\.not\s*\.\s*toBeVisible\s*\(\)/g, '')
+    // Simplify timeout messages
+    .replace(/Timed out \d+ms waiting for\s*/g, '')
+    // Remove "Call log:" and everything after
+    .replace(/Call log:[\s\S]*/g, '')
+    // Clean up whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 interface EnvResults {
   environment: string;
   total: number;
@@ -53,7 +77,7 @@ function parseResults(resultsPath: string, envName: string): EnvResults | null {
           title: `${suite.title} > ${spec.title}`,
           status: lastResult?.status || result.status || 'skipped',
           duration: lastResult?.duration || 0,
-          error: lastResult?.error?.message?.substring(0, 500),
+          error: cleanError(lastResult?.error?.message?.substring(0, 500) || ''),
         });
       }
     }
@@ -66,7 +90,7 @@ function parseResults(resultsPath: string, envName: string): EnvResults | null {
             title: `${nestedSuite.title} > ${spec.title}`,
             status: lastResult?.status || result.status || 'skipped',
             duration: lastResult?.duration || 0,
-            error: lastResult?.error?.message?.substring(0, 500),
+            error: cleanError(lastResult?.error?.message?.substring(0, 500) || ''),
           });
         }
       }
@@ -97,12 +121,12 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
   if (pocResults) {
     pocResults.tests
       .filter((t) => t.status === 'failed' || t.status === 'timedOut')
-      .forEach((t) => failedTests.push(`[POC] ${t.title}: ${t.error || 'Failed'}`));
+      .forEach((t) => failedTests.push(`[POC] ${t.title}${t.error ? ` — ${t.error}` : ''}`));
   }
   if (prodResults) {
     prodResults.tests
       .filter((t) => t.status === 'failed' || t.status === 'timedOut')
-      .forEach((t) => failedTests.push(`[PROD] ${t.title}: ${t.error || 'Failed'}`));
+      .forEach((t) => failedTests.push(`[PROD] ${t.title}${t.error ? ` — ${t.error}` : ''}`));
   }
 
   if (failedTests.length === 0) {
