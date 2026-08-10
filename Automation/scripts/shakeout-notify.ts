@@ -480,6 +480,11 @@ async function main() {
     jiraKey = await createJiraTicket(pocResults, prodResults);
   }
 
+  // Post to Slack (only on failures)
+  if (hasFailures) {
+    await postToSlack(pocResults, prodResults, jiraKey);
+  }
+
   // Generate and send email (always — includes pass status too)
   const html = generateEmailHtml(pocResults, prodResults, jiraKey);
   await sendEmail(html, hasFailures);
@@ -491,6 +496,102 @@ async function main() {
   } else {
     console.log('\n✅ All shakeout tests passed on both environments.');
   }
+}
+
+/**
+ * Post failed test summary to Slack via Incoming Webhook.
+ */
+async function postToSlack(pocResults: EnvResults | null, prodResults: EnvResults | null, jiraKey: string | null): Promise<void> {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+
+  if (!webhookUrl) {
+    console.log('⚠️  Slack webhook not configured — skipping Slack notification');
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Build failed tests list
+  const failedLines: string[] = [];
+  if (pocResults) {
+    pocResults.tests
+      .filter((t) => t.status === 'failed' || t.status === 'timedOut')
+      .forEach((t) => failedLines.push(`• *[POC]* ${t.title}${t.error ? `\n   _${t.error}_` : ''}`));
+  }
+  if (prodResults) {
+    prodResults.tests
+      .filter((t) => t.status === 'failed' || t.status === 'timedOut')
+      .forEach((t) => failedLines.push(`• *[PROD]* ${t.title}${t.error ? `\n   _${t.error}_` : ''}`));
+  }
+
+  // Build summary line
+  const pocSummary = pocResults ? `POC: ${pocResults.passed}/${pocResults.total} passed` : 'POC: No results';
+  const prodSummary = prodResults ? `PROD: ${prodResults.passed}/${prodResults.total} passed` : 'PROD: No results';
+
+  const jiraLine = jiraKey
+    ? `\n*Defect:* <https://quantarra.atlassian.net/browse/${jiraKey}|${jiraKey}>`
+    : '';
+
+  const message = {
+    blocks: [
+      {
+        type: 'header',
+        text: { type: 'plain_text', text: `Daily Shakeout — ${today}`, emoji: false },
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*${pocSummary}*  |  *${prodSummary}*${jiraLine}`,
+        },
+      },
+      {
+        type: 'divider',
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Failed Tests (${failedLines.length}):*\n${failedLines.join('\n')}`,
+        },
+      },
+    ],
+  };
+
+  const url = new URL(webhookUrl);
+  const body = JSON.stringify(message);
+
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        hostname: url.hostname,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            console.log('💬 Slack notification sent');
+          } else {
+            console.log(`⚠️  Slack webhook returned ${res.statusCode}: ${data}`);
+          }
+          resolve();
+        });
+      },
+    );
+    req.on('error', (e) => {
+      console.log(`⚠️  Slack request failed: ${e.message}`);
+      resolve();
+    });
+    req.write(body);
+    req.end();
+  });
 }
 
 main().catch((e) => {
