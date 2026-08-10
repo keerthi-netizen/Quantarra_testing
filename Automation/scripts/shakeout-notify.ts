@@ -108,6 +108,60 @@ function parseResults(resultsPath: string, envName: string): EnvResults | null {
   };
 }
 
+/**
+ * Build a readable Jira summary from failed test results.
+ *
+ * Examples:
+ * - Single: "[Shakeout] PROD — Contributor can see Integrations tab (TG-3)"
+ * - Multiple same env: "[Shakeout] PROD — 3 tests failed (TG-3, TG-6, API)"
+ * - Both envs: "[Shakeout] POC + PROD — 4 tests failed (TG-3, TG-6, API)"
+ */
+function buildJiraSummary(pocResults: EnvResults | null, prodResults: EnvResults | null, failedTests: string[]): string {
+  // Determine which environments have failures
+  const pocFailed = pocResults?.tests.filter((t) => t.status === 'failed' || t.status === 'timedOut') || [];
+  const prodFailed = prodResults?.tests.filter((t) => t.status === 'failed' || t.status === 'timedOut') || [];
+
+  let envLabel = '';
+  if (pocFailed.length > 0 && prodFailed.length > 0) {
+    envLabel = 'POC + PROD';
+  } else if (pocFailed.length > 0) {
+    envLabel = 'POC';
+  } else {
+    envLabel = 'PROD';
+  }
+
+  // Extract test group names from titles for concise summary
+  const allFailed = [...pocFailed, ...prodFailed];
+
+  if (allFailed.length === 1) {
+    // Single failure — use the test title directly (truncated)
+    const title = allFailed[0].title;
+    // Extract the meaningful part (after " > ")
+    const parts = title.split(' > ');
+    const testName = parts.length > 1 ? parts[parts.length - 1] : title;
+    const truncated = testName.length > 60 ? testName.substring(0, 57) + '...' : testName;
+    return `[Shakeout] ${envLabel} — ${truncated}`;
+  }
+
+  // Multiple failures — extract unique test groups
+  const groups = new Set<string>();
+  for (const t of allFailed) {
+    const title = t.title;
+    if (title.includes('TG-1')) { groups.add('TG-1 Login'); }
+    else if (title.includes('TG-2')) { groups.add('TG-2 Navigation'); }
+    else if (title.includes('TG-3')) { groups.add('TG-3 RBAC'); }
+    else if (title.includes('TG-4')) { groups.add('TG-4 Admin'); }
+    else if (title.includes('TG-6')) { groups.add('TG-6 Audit'); }
+    else if (title.includes('MC')) { groups.add('MC'); }
+    else if (title.includes('Audit Portal')) { groups.add('Audit Portal'); }
+    else if (title.includes('API')) { groups.add('API'); }
+    else { groups.add(title.substring(0, 20)); }
+  }
+
+  const groupList = Array.from(groups).join(', ');
+  return `[Shakeout] ${envLabel} — ${allFailed.length} tests failed (${groupList})`;
+}
+
 async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvResults | null): Promise<string | null> {
   const jiraEmail = process.env.JIRA_EMAIL;
   const jiraToken = process.env.JIRA_API_TOKEN;
@@ -145,7 +199,7 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
   }
 
   // --- No existing ticket: create new one ---
-  const summary = `[Shakeout] ${failedTests.length} test(s) failed — ${today}`;
+  const summary = buildJiraSummary(pocResults, prodResults, failedTests);
 
   const description = {
     type: 'doc',
