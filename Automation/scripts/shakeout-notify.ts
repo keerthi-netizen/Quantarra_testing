@@ -134,13 +134,37 @@ function buildJiraSummary(pocResults: EnvResults | null, prodResults: EnvResults
   const allFailed = [...pocFailed, ...prodFailed];
 
   if (allFailed.length === 1) {
-    // Single failure — use the test title directly (truncated)
+    // Single failure — use the full test title for descriptive summary
     const title = allFailed[0].title;
     // Extract the meaningful part (after " > ")
     const parts = title.split(' > ');
     const testName = parts.length > 1 ? parts[parts.length - 1] : title;
-    const truncated = testName.length > 60 ? testName.substring(0, 57) + '...' : testName;
-    return `[Shakeout] ${envLabel} — ${truncated}`;
+    // Append error context if available (what actually went wrong)
+    const error = allFailed[0].error;
+    let errorContext = '';
+    if (error) {
+      // Extract the key info: "Expected: not visible Received: visible" → "is visible for restricted user"
+      if (error.includes('not visible') && error.includes('Received: visible')) {
+        // Extract what element was unexpectedly visible
+        const locatorMatch = error.match(/locator\('([^']+)'\)/);
+        if (locatorMatch) {
+          const element = locatorMatch[1]
+            .replace('a[href="/', '')
+            .replace('"]', '')
+            .replace(/\//g, '');
+          errorContext = ` — ${element} tab is viewable for restricted role`;
+        } else {
+          errorContext = ' — element visible for restricted user';
+        }
+      } else if (error.includes('Expected: visible') || error.includes('toBeVisible')) {
+        errorContext = ' — element not found or not rendered';
+      } else if (error.includes('Timeout') || error.includes('timed out')) {
+        errorContext = ' — page timed out';
+      }
+    }
+    const fullSummary = `[Shakeout] ${envLabel} — ${testName}${errorContext}`;
+    // Jira summary max 255 chars
+    return fullSummary.length > 200 ? fullSummary.substring(0, 197) + '...' : fullSummary;
   }
 
   // Multiple failures — extract unique test groups
