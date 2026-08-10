@@ -2,10 +2,8 @@ name: Daily Shakeout — POC & Prod
 
 on:
   schedule:
-    # 9:00 AM IST = 03:30 UTC
-    - cron: '30 3 * * *'
-    # 7:00 PM IST = 13:30 UTC
-    - cron: '30 13 * * *'
+    # 10:00 AM IST = 04:30 UTC — daily
+    - cron: '30 4 * * *'
   workflow_dispatch:
     inputs:
       environment:
