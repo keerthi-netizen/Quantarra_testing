@@ -357,31 +357,34 @@ function generateEmailHtml(pocResults: EnvResults | null, prodResults: EnvResult
 
   const renderEnv = (results: EnvResults | null, name: string): string => {
     if (!results) {
-      return `<h3>${name}: ⚠️ No results (run may have failed to start)</h3>`;
+      return `<h3>${name}: No results (run may have failed to start)</h3>`;
     }
 
-    const statusIcon = results.failed > 0 ? '❌' : '✅';
+    const statusLabel = results.failed > 0 ? 'FAILED' : 'PASSED';
+    const statusColor = results.failed > 0 ? '#c62828' : '#2e7d32';
     const rows = results.tests
       .map(
-        (t) => `
-      <tr>
-        <td style="padding:4px 8px;border:1px solid #ddd;">${t.status === 'passed' ? '✅' : t.status === 'failed' ? '❌' : '⏭️'}</td>
+        (t) => {
+          const statusText = t.status === 'passed' ? 'Passed' : t.status === 'failed' ? 'Failed' : t.status === 'timedOut' ? 'Timed Out' : 'Skipped';
+          const rowColor = t.status === 'failed' || t.status === 'timedOut' ? 'background:#fff3f3;' : '';
+          return `
+      <tr style="${rowColor}">
+        <td style="padding:4px 8px;border:1px solid #ddd;">${statusText}</td>
         <td style="padding:4px 8px;border:1px solid #ddd;">${t.title}</td>
-        <td style="padding:4px 8px;border:1px solid #ddd;">${t.status}</td>
         <td style="padding:4px 8px;border:1px solid #ddd;">${(t.duration / 1000).toFixed(1)}s</td>
         <td style="padding:4px 8px;border:1px solid #ddd;color:#c62828;">${t.error || ''}</td>
-      </tr>`,
+      </tr>`;
+        },
       )
       .join('');
 
     return `
-      <h3>${statusIcon} ${name}: ${results.passed}/${results.total} passed, ${results.failed} failed</h3>
+      <h3 style="color:${statusColor};">${name} — ${statusLabel} (${results.passed}/${results.total} passed, ${results.failed} failed)</h3>
       <table style="border-collapse:collapse;width:100%;font-size:13px;">
         <thead>
           <tr style="background:#f5f5f5;">
             <th style="padding:4px 8px;border:1px solid #ddd;">Status</th>
             <th style="padding:4px 8px;border:1px solid #ddd;">Test</th>
-            <th style="padding:4px 8px;border:1px solid #ddd;">Result</th>
             <th style="padding:4px 8px;border:1px solid #ddd;">Duration</th>
             <th style="padding:4px 8px;border:1px solid #ddd;">Error</th>
           </tr>
@@ -391,13 +394,15 @@ function generateEmailHtml(pocResults: EnvResults | null, prodResults: EnvResult
   };
 
   const jiraSection = jiraKey
-    ? `<p>🎫 <strong>Jira ticket created:</strong> <a href="https://quantarra.atlassian.net/browse/${jiraKey}">${jiraKey}</a></p>`
-    : '';
+    ? `<p style="font-size:14px;padding:8px 12px;background:#fff3e0;border-left:4px solid #f9a825;margin:12px 0;">
+        <strong>Defect:</strong> <a href="https://quantarra.atlassian.net/browse/${jiraKey}">${jiraKey}</a> — created/updated for failing tests
+      </p>`
+    : '<p style="font-size:14px;padding:8px 12px;background:#e8f5e9;border-left:4px solid #2e7d32;margin:12px 0;"><strong>No defects</strong> — all tests passed</p>';
 
   return `
     <html>
     <body style="font-family:Inter,Arial,sans-serif;padding:20px;">
-      <h2>🔄 Daily Shakeout Report — ${timestamp}</h2>
+      <h2>Daily Shakeout Report — ${timestamp}</h2>
       ${jiraSection}
       <hr/>
       ${renderEnv(pocResults, 'POC (poc.quantarra.com)')}
@@ -438,8 +443,8 @@ async function sendEmail(html: string, hasFailures: boolean): Promise<void> {
 
   const today = new Date().toISOString().slice(0, 10);
   const subject = hasFailures
-    ? `❌ [SHAKEOUT FAILED] Daily Health Check — ${today}`
-    : `✅ [SHAKEOUT PASSED] Daily Health Check — ${today}`;
+    ? `[SHAKEOUT FAILED] Daily Health Check — ${today}`
+    : `[SHAKEOUT PASSED] Daily Health Check — ${today}`;
 
   await transporter.sendMail({
     from: `"Quantarra QA" <${smtpUser}>`,
