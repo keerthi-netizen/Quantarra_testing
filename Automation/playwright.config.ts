@@ -36,6 +36,18 @@ export default defineConfig({
       },
     },
 
+    // --- Regression (Full regression — Excel-driven) ---
+    {
+      name: 'regression',
+      testDir: './tests/daily-shakeout',
+      fullyParallel: false,
+      workers: 1,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.baseUrl,
+      },
+    },
+
     // --- API Test Suite (positive + negative) ---
     {
       name: 'api-suite',

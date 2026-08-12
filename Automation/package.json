@@ -27,6 +27,8 @@
     "shakeout:poc": "cross-env ENV=poc npx playwright test --project=daily-shakeout",
     "shakeout:prod": "cross-env ENV=prod npx playwright test --project=daily-shakeout",
     "shakeout:all": "npm run shakeout:poc && npm run shakeout:prod",
+    "regression": "cross-env ENV=staging RUN_MODE=regression npx playwright test --project=regression",
+    "regression:staging": "cross-env ENV=staging RUN_MODE=regression npx playwright test --project=regression",
     "test:headed": "npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
     "test:ui": "npx playwright test --ui",

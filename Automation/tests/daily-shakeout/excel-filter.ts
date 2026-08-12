@@ -2,14 +2,19 @@
  * Excel-Driven Test Filter
  *
  * Reads "tests/New_Testcase.xlsx" → "Step case and steps" sheet
- * and checks the "Run Shakeout in Prod and POC" column to decide
- * which test cases should execute.
+ * and checks either:
+ *   - "Run Shakeout in Prod and POC" column (for daily shakeout)
+ *   - "Run for Full regression" column (for regression runs)
+ *
+ * The mode is determined by the RUN_MODE environment variable:
+ *   RUN_MODE=shakeout (default) → reads "Run Shakeout in Prod and POC"
+ *   RUN_MODE=regression         → reads "Run for Full regression"
  *
  * Usage in test files:
  *   import { shouldRun } from './excel-filter';
  *
  *   test('My test name', async ({ page }) => {
- *     test.skip(!shouldRun('TG-2', 'Scenario 2', 'TC-6'), 'Excluded by Excel — Run Shakeout = No');
+ *     test.skip(!shouldRun('TG-2', 'Scenario 2', 'TC-6'), 'Excluded by Excel');
  *     // ... test steps
  *   });
  *
@@ -19,19 +24,35 @@
 
 import * as path from 'path';
 
+type RunMode = 'shakeout' | 'regression';
+
 interface TestCaseEntry {
   scenario: string;
   tc: string;
   tg: string;
-  run: boolean;
+  runShakeout: boolean;
+  runRegression: boolean;
   desc: string;
 }
 
 let _cache: TestCaseEntry[] | null = null;
 
 /**
+ * Determine current run mode from environment variable.
+ */
+function getRunMode(): RunMode {
+  const mode = (process.env.RUN_MODE || 'shakeout').trim().toLowerCase();
+
+  if (mode === 'regression') {
+    return 'regression';
+  }
+
+  return 'shakeout';
+}
+
+/**
  * Loads and caches the Excel test case data.
- * Returns an array of test case entries with their run status.
+ * Returns an array of test case entries with their run status for both modes.
  */
 function loadExcelData(): TestCaseEntry[] {
   if (_cache) {
@@ -59,7 +80,8 @@ function loadExcelData(): TestCaseEntry[] {
       const tc = String(row['Test case'] || '');
       const scenario = String(row['Test scenario/Test case/Test step'] || '');
       const tg = String(row['Test group'] || '');
-      const runVal = String(row['Run Shakeout in Prod and POC'] || '').trim().toLowerCase();
+      const shakeoutVal = String(row['Run Shakeout in Prod and POC'] || '').trim().toLowerCase();
+      const regressionVal = String(row['Run for Full regression'] || '').trim().toLowerCase();
 
       if (tc.startsWith('Scenario')) {
         currentScenario = tc;
@@ -68,7 +90,8 @@ function loadExcelData(): TestCaseEntry[] {
           scenario: currentScenario,
           tc,
           tg,
-          run: runVal === 'yes',
+          runShakeout: shakeoutVal === 'yes',
+          runRegression: regressionVal === 'yes',
           desc: scenario.substring(0, 120),
         });
       }
@@ -85,6 +108,7 @@ function loadExcelData(): TestCaseEntry[] {
 
 /**
  * Check if a specific test case should run based on Excel marking.
+ * Reads the appropriate column based on RUN_MODE env var.
  *
  * @param tg - Test Group (e.g., "TG-1", "TG-2", "TG-6")
  * @param scenario - Scenario name (e.g., "Scenario 1", "Scenario 6")
@@ -94,6 +118,7 @@ function loadExcelData(): TestCaseEntry[] {
  */
 export function shouldRun(tg: string, scenario: string, tc: string): boolean {
   const entries = loadExcelData();
+  const mode = getRunMode();
 
   if (entries.length === 0) {
     // Excel not loaded — run everything (safe default)
@@ -109,7 +134,7 @@ export function shouldRun(tg: string, scenario: string, tc: string): boolean {
     return true;
   }
 
-  return match.run;
+  return mode === 'regression' ? match.runRegression : match.runShakeout;
 }
 
 /**
@@ -120,6 +145,7 @@ export function shouldRun(tg: string, scenario: string, tc: string): boolean {
  */
 export function shouldRunGroup(tg: string): boolean {
   const entries = loadExcelData();
+  const mode = getRunMode();
 
   if (entries.length === 0) {
     return true;
@@ -131,7 +157,9 @@ export function shouldRunGroup(tg: string): boolean {
     return true;
   }
 
-  return groupEntries.some((e) => e.run);
+  return mode === 'regression'
+    ? groupEntries.some((e) => e.runRegression)
+    : groupEntries.some((e) => e.runShakeout);
 }
 
 /**
@@ -149,16 +177,19 @@ export function getGroupStatus(tg: string): TestCaseEntry[] {
  */
 export function printFilterSummary(): void {
   const entries = loadExcelData();
+  const mode = getRunMode();
 
   if (entries.length === 0) {
     console.log('[excel-filter] No Excel data loaded — running all tests.');
     return;
   }
 
-  const included = entries.filter((e) => e.run);
-  const excluded = entries.filter((e) => !e.run);
+  const columnName = mode === 'regression' ? 'Run for Full regression' : 'Run Shakeout in Prod and POC';
+  const included = entries.filter((e) => mode === 'regression' ? e.runRegression : e.runShakeout);
+  const excluded = entries.filter((e) => mode === 'regression' ? !e.runRegression : !e.runShakeout);
 
-  console.log(`[excel-filter] Loaded ${entries.length} test cases from Excel.`);
+  console.log(`[excel-filter] Mode: ${mode.toUpperCase()} | Column: "${columnName}"`);
+  console.log(`  Loaded ${entries.length} test cases from Excel.`);
   console.log(`  ✅ Run: ${included.length} | ⏭️ Skip: ${excluded.length}`);
 
   if (excluded.length > 0) {

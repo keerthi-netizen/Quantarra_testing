@@ -23,6 +23,7 @@ on:
         type: choice
         options:
           - 'Daily Shakeout (Excel-driven)'
+          - 'Regression (Excel-driven)'
           - 'Scenario 1 - Authentication Flow'
           - 'Scenario 2 - Navigation Workspace (Admin)'
           - 'Scenario 3 - Navigation Workspace (Contributor)'
@@ -168,6 +169,10 @@ jobs:
             "Daily Shakeout (Excel-driven)")
               echo "Running: Daily Shakeout — Excel-driven (reads New_Testcase.xlsx for inclusion)"
               npx playwright test --project=daily-shakeout --retries=1
+              ;;
+            "Regression (Excel-driven)")
+              echo "Running: Regression — Excel-driven (reads 'Run for Full regression' column)"
+              RUN_MODE=regression npx playwright test --project=regression --retries=1
               ;;
             "Scenario 1 - Authentication Flow")
               echo "Running: Scenario 1 — Authentication Flow"
