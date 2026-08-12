@@ -1,6 +1,10 @@
 name: QA Automation
 
 on:
+  # Scheduled daily shakeout — runs every day at 6:00 AM IST (00:30 UTC)
+  schedule:
+    - cron: '30 0 * * *'
+
   # Manual trigger (from this repo's Actions tab)
   workflow_dispatch:
     inputs:
@@ -10,6 +14,7 @@ on:
         type: choice
         options:
           - staging
+          - poc
           - prod
         default: staging
       scenario:
@@ -17,6 +22,7 @@ on:
         required: true
         type: choice
         options:
+          - 'Daily Shakeout (Excel-driven)'
           - 'Scenario 1 - Authentication Flow'
           - 'Scenario 2 - Navigation Workspace (Admin)'
           - 'Scenario 3 - Navigation Workspace (Contributor)'
@@ -26,7 +32,7 @@ on:
           - 'All - API Tests (Auth, Users, Frameworks, Audits, Policies, Evidence)'
           - 'Console Error Monitor'
           - 'All'
-        default: 'All'
+        default: 'Daily Shakeout (Excel-driven)'
       framework:
         description: 'Framework type (only used with "Scenario 5 - Audit Lifecycle Create")'
         required: false
@@ -54,14 +60,14 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: 'Target environment (staging or prod)'
+        description: 'Target environment (staging, poc, or prod)'
         required: true
         type: string
       scenario:
         description: 'Test scenario to run'
         required: false
         type: string
-        default: 'All'
+        default: 'Daily Shakeout (Excel-driven)'
       framework:
         description: 'Framework type for audit creation tests'
         required: false
@@ -98,9 +104,9 @@ jobs:
       failed: ${{ steps.outcome.outputs.failed }}
 
     env:
-      ENV: ${{ inputs.environment }}
+      ENV: ${{ inputs.environment || 'staging' }}
       FRAMEWORK_TYPE: ${{ inputs.framework || 'N/A' }}
-      TEST_SCENARIO: ${{ inputs.scenario || 'All' }}
+      TEST_SCENARIO: ${{ inputs.scenario || 'Daily Shakeout (Excel-driven)' }}
       # --- Credentials (use secrets if passed, fallback to defaults) ---
       ADMIN_EMAIL: keerthikumar.kothandapani@gmail.com
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || 'Quantarra2026!' }}
@@ -113,6 +119,10 @@ jobs:
       STAGING_MC_URL: https://stg.quantarra.com:4002
       STAGING_AUDIT_URL: https://stg.quantarra.com:4003
       STAGING_API_URL: https://stg.quantarra.com/api/v1
+      POC_BASE_URL: https://poc.quantarra.com
+      POC_MC_URL: https://mc.poc.quantarra.com
+      POC_AUDIT_URL: https://audit-stg.quantarra.com
+      POC_API_URL: https://poc.quantarra.com/api/v1
       PROD_BASE_URL: https://app.quantarra.com
       PROD_MC_URL: https://mc.quantarra.com
       PROD_AUDIT_URL: https://audit.quantarra.com
@@ -146,7 +156,7 @@ jobs:
         id: run-tests
         working-directory: Automation
         run: |
-          SCENARIO="${{ inputs.scenario || 'All' }}"
+          SCENARIO="${{ inputs.scenario || 'Daily Shakeout (Excel-driven)' }}"
           
           echo "🎯 Environment: $ENV"
           echo "🎯 Scenario: $SCENARIO"
@@ -155,6 +165,10 @@ jobs:
           
           # Map scenario input to test file/grep pattern
           case "$SCENARIO" in
+            "Daily Shakeout (Excel-driven)")
+              echo "Running: Daily Shakeout — Excel-driven (reads New_Testcase.xlsx for inclusion)"
+              npx playwright test --project=daily-shakeout --retries=1
+              ;;
             "Scenario 1 - Authentication Flow")
               echo "Running: Scenario 1 — Authentication Flow"
               npx playwright test tests/smoke-suite/tg1-tg3-authentication.spec.ts --project=smoke-suite --retries=1 --grep "Scenario 1"
@@ -189,11 +203,11 @@ jobs:
               ;;
             "All")
               echo "Running: ALL test suites"
-              npx playwright test --project=smoke-suite --project=api-suite --retries=1
+              npx playwright test --project=daily-shakeout --project=smoke-suite --project=api-suite --retries=1
               ;;
             *)
-              echo "⚠️ Unknown scenario: $SCENARIO — running All"
-              npx playwright test --project=smoke-suite --project=api-suite --retries=1
+              echo "⚠️ Unknown scenario: $SCENARIO — running Daily Shakeout"
+              npx playwright test --project=daily-shakeout --retries=1
               ;;
           esac
 
@@ -205,8 +219,10 @@ jobs:
           if [ -f reports/results.json ]; then
             PASSED=$(cat reports/results.json | jq '.stats.expected // 0')
             FAILED=$(cat reports/results.json | jq '.stats.unexpected // 0')
+            SKIPPED=$(cat reports/results.json | jq '.stats.skipped // 0')
             echo "passed=$PASSED" >> $GITHUB_OUTPUT
             echo "failed=$FAILED" >> $GITHUB_OUTPUT
+            echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
             if [ "$FAILED" -eq "0" ]; then
               echo "result=passed" >> $GITHUB_OUTPUT
             else
@@ -215,6 +231,7 @@ jobs:
           else
             echo "passed=0" >> $GITHUB_OUTPUT
             echo "failed=1" >> $GITHUB_OUTPUT
+            echo "skipped=0" >> $GITHUB_OUTPUT
             echo "result=failed" >> $GITHUB_OUTPUT
           fi
 
@@ -222,19 +239,20 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-report-${{ inputs.environment }}-${{ github.run_number }}
+          name: qa-report-${{ inputs.environment || 'staging' }}-${{ github.run_number }}
           path: |
             Automation/reports/html/
             Automation/reports/results.json
           retention-days: 30
 
       - name: Upload failure screenshots
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qa-screenshots-${{ github.run_number }}
           path: Automation/reports/artifacts/**/*.png
           retention-days: 14
+          if-no-files-found: ignore
 
       - name: Test Summary
         if: always()
@@ -244,8 +262,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | **${{ inputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Scenario | **${{ inputs.scenario || 'All' }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | **${{ inputs.environment || 'staging' }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Scenario | **${{ inputs.scenario || 'Daily Shakeout (Excel-driven)' }}** |" >> $GITHUB_STEP_SUMMARY
           echo "| Framework | ${{ inputs.framework || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -259,3 +277,6 @@ jobs:
             echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
             echo "| ⏱️ Duration | ${DURATION}s |" >> $GITHUB_STEP_SUMMARY
           fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📋 *Test inclusion controlled by \`tests/New_Testcase.xlsx\` → \"Run Shakeout in Prod and POC\" column*" >> $GITHUB_STEP_SUMMARY

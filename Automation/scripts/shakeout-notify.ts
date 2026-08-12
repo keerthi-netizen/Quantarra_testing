@@ -3,7 +3,10 @@
  *
  * Reads test results from both POC and Prod runs, then:
  * 1. If ANY test failed → creates a Jira ticket with full details
- * 2. Sends a consolidated email with pass/fail status for both environments
+ * 2. Sends email with:
+ *    - Body: simple summary table (Scenario | Total | Passed | Failed)
+ *    - Attachment: Excel with detailed per-test-case status
+ * 3. Posts to Slack on failures
  *
  * Run: npx tsx scripts/shakeout-notify.ts
  */
@@ -13,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import * as nodemailer from 'nodemailer';
+import ExcelJS from 'exceljs';
 
 // Load environment variables from .env
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
@@ -33,17 +37,12 @@ function cleanError(raw: string): string {
   }
 
   return raw
-    // Remove ANSI escape codes
     .replace(/\u001b\[\d+m/g, '')
     .replace(/␛\[\d+m/g, '')
     .replace(/\[[\d;]*m/g, '')
-    // Remove "expect(locator).not.toBeVisible()" noise
     .replace(/expect\(\s*locator\s*\)\s*\.not\s*\.\s*toBeVisible\s*\(\)/g, '')
-    // Simplify timeout messages
     .replace(/Timed out \d+ms waiting for\s*/g, '')
-    // Remove "Call log:" and everything after
     .replace(/Call log:[\s\S]*/g, '')
-    // Clean up whitespace
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -108,16 +107,234 @@ function parseResults(resultsPath: string, envName: string): EnvResults | null {
   };
 }
 
+// ===== SCENARIO MAPPING =====
+
 /**
- * Build a readable Jira summary from failed test results.
- *
- * Examples:
- * - Single: "[Shakeout] PROD — Contributor can see Integrations tab (TG-3)"
- * - Multiple same env: "[Shakeout] PROD — 3 tests failed (TG-3, TG-6, API)"
- * - Both envs: "[Shakeout] POC + PROD — 4 tests failed (TG-3, TG-6, API)"
+ * Maps test titles from Playwright results to scenario names for the summary table.
+ * Order: Excel scenarios first, then MC, Audit Portal, API.
  */
-function buildJiraSummary(pocResults: EnvResults | null, prodResults: EnvResults | null, failedTests: string[]): string {
-  // Determine which environments have failures
+interface ScenarioSummary {
+  name: string;
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+}
+
+function categorizeTests(results: EnvResults): ScenarioSummary[] {
+  const categories: { name: string; match: (title: string) => boolean }[] = [
+    { name: 'Authentication Flow', match: (t) => t.includes('TG-1') || t.includes('Login Health') },
+    { name: 'Navigation - Workspace (Admin)', match: (t) => t.includes('TG-2') || t.includes('Admin Navigation') },
+    { name: 'Navigation - Workspace (Contributor)', match: (t) => t.includes('TG-3') || t.includes('Contributor Navigation') },
+    { name: 'Admin Tab', match: (t) => t.includes('TG-4') || t.includes('Admin Tab') },
+    { name: 'Audit Lifecycle - Existing Audit', match: (t) => t.includes('TG-6') || t.includes('Audit Lifecycle') },
+    { name: 'MC Availability', match: (t) => t.includes('MC') || t.includes('Mission Control') },
+    { name: 'Audit Portal Availability', match: (t) => t.includes('Audit Portal') },
+    { name: 'API Endpoints', match: (t) => t.includes('API') || t.includes('Core API') },
+  ];
+
+  const summaries: ScenarioSummary[] = [];
+  const categorized = new Set<number>();
+
+  for (const cat of categories) {
+    const matching = results.tests.filter((t, i) => {
+      if (categorized.has(i)) {
+        return false;
+      }
+
+      if (cat.match(t.title)) {
+        categorized.add(i);
+        return true;
+      }
+
+      return false;
+    });
+
+    if (matching.length > 0) {
+      summaries.push({
+        name: cat.name,
+        total: matching.length,
+        passed: matching.filter((t) => t.status === 'passed').length,
+        failed: matching.filter((t) => t.status === 'failed' || t.status === 'timedOut').length,
+        skipped: matching.filter((t) => t.status === 'skipped').length,
+      });
+    }
+  }
+
+  // Catch any uncategorized tests
+  const uncategorized = results.tests.filter((_, i) => !categorized.has(i));
+  if (uncategorized.length > 0) {
+    summaries.push({
+      name: 'Other',
+      total: uncategorized.length,
+      passed: uncategorized.filter((t) => t.status === 'passed').length,
+      failed: uncategorized.filter((t) => t.status === 'failed' || t.status === 'timedOut').length,
+      skipped: uncategorized.filter((t) => t.status === 'skipped').length,
+    });
+  }
+
+  return summaries;
+}
+
+// ===== EMAIL =====
+
+function generateEmailHtml(pocResults: EnvResults | null, prodResults: EnvResults | null, jiraKey: string | null): string {
+  const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+  const renderSummaryTable = (results: EnvResults | null, envName: string): string => {
+    if (!results) {
+      return `<h3>${envName}: No results (run may have failed to start)</h3>`;
+    }
+
+    const statusLabel = results.failed > 0 ? '❌ FAILED' : '✅ PASSED';
+    const statusColor = results.failed > 0 ? '#c62828' : '#2e7d32';
+    const summaries = categorizeTests(results);
+
+    const rows = summaries
+      .map((s) => {
+        const rowBg = s.failed > 0 ? 'background:#fff3f3;' : '';
+        return `
+          <tr style="${rowBg}">
+            <td style="padding:8px 12px;border:1px solid #ddd;">${s.name}</td>
+            <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;">${s.total}</td>
+            <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#2e7d32;font-weight:600;">${s.passed}</td>
+            <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:${s.failed > 0 ? '#c62828' : '#666'};font-weight:${s.failed > 0 ? '600' : '400'};">${s.failed}</td>
+            <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#666;">${s.skipped}</td>
+          </tr>`;
+      })
+      .join('');
+
+    // Totals row
+    const totalRow = `
+      <tr style="background:#f5f5f5;font-weight:700;">
+        <td style="padding:8px 12px;border:1px solid #ddd;">TOTAL</td>
+        <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;">${results.total}</td>
+        <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#2e7d32;">${results.passed}</td>
+        <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#c62828;">${results.failed}</td>
+        <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#666;">${results.skipped}</td>
+      </tr>`;
+
+    return `
+      <h3 style="color:${statusColor};margin-bottom:8px;">${envName} — ${statusLabel}</h3>
+      <table style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:24px;">
+        <thead>
+          <tr style="background:#f5f5f5;">
+            <th style="padding:8px 12px;border:1px solid #ddd;text-align:left;">Test Scenario</th>
+            <th style="padding:8px 12px;border:1px solid #ddd;text-align:center;">Total</th>
+            <th style="padding:8px 12px;border:1px solid #ddd;text-align:center;">Passed</th>
+            <th style="padding:8px 12px;border:1px solid #ddd;text-align:center;">Failed</th>
+            <th style="padding:8px 12px;border:1px solid #ddd;text-align:center;">Skipped</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+          ${totalRow}
+        </tbody>
+      </table>`;
+  };
+
+  const jiraSection = jiraKey
+    ? `<p style="font-size:14px;padding:8px 12px;background:#fff3e0;border-left:4px solid #f9a825;margin:12px 0;">
+        <strong>Defect:</strong> <a href="https://quantarra.atlassian.net/browse/${jiraKey}">${jiraKey}</a> — created/updated for failing tests
+      </p>`
+    : '';
+
+  return `
+    <html>
+    <body style="font-family:Inter,Arial,sans-serif;padding:20px;max-width:800px;">
+      <h2 style="margin-bottom:4px;">Daily Shakeout Report</h2>
+      <p style="color:#666;margin-top:0;">${timestamp}</p>
+      ${jiraSection}
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:16px 0;"/>
+      ${renderSummaryTable(pocResults, 'POC (poc.quantarra.com)')}
+      ${renderSummaryTable(prodResults, 'PROD (app.quantarra.com)')}
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:16px 0;"/>
+      <p style="color:#666;font-size:12px;">
+        📎 Detailed per-test-case status attached as Excel.<br/>
+        This is an automated report from Quantarra QA Automation.
+      </p>
+    </body>
+    </html>`;
+}
+
+// ===== EXCEL ATTACHMENT =====
+
+async function generateExcelReport(pocResults: EnvResults | null, prodResults: EnvResults | null): Promise<string> {
+  const workbook = new ExcelJS.Workbook();
+
+  const addSheet = (results: EnvResults | null, sheetName: string) => {
+    const sheet = workbook.addWorksheet(sheetName);
+
+    sheet.columns = [
+      { header: 'S.No', key: 'sno', width: 6 },
+      { header: 'Test Scenario', key: 'scenario', width: 35 },
+      { header: 'Test Case', key: 'testCase', width: 55 },
+      { header: 'Status', key: 'status', width: 12 },
+      { header: 'Duration (s)', key: 'duration', width: 12 },
+      { header: 'Error', key: 'error', width: 50 },
+    ];
+
+    // Style header row
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
+
+    if (!results) {
+      sheet.addRow({ sno: 1, scenario: 'No results', testCase: 'Run may have failed to start', status: 'N/A', duration: 0, error: '' });
+      return;
+    }
+
+    let sno = 1;
+    for (const test of results.tests) {
+      // Extract scenario from test title (before " > ")
+      const parts = test.title.split(' > ');
+      const scenario = parts[0] || '';
+      const testCase = parts.length > 1 ? parts.slice(1).join(' > ') : test.title;
+
+      const row = sheet.addRow({
+        sno,
+        scenario,
+        testCase,
+        status: test.status === 'passed' ? 'PASS' : test.status === 'failed' ? 'FAIL' : test.status === 'timedOut' ? 'TIMEOUT' : 'SKIP',
+        duration: (test.duration / 1000).toFixed(1),
+        error: test.error || '',
+      });
+
+      // Color code status cell
+      const statusCell = row.getCell('status');
+      if (test.status === 'passed') {
+        statusCell.font = { color: { argb: 'FF2E7D32' }, bold: true };
+      } else if (test.status === 'failed' || test.status === 'timedOut') {
+        statusCell.font = { color: { argb: 'FFC62828' }, bold: true };
+        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3F3' } };
+      } else {
+        statusCell.font = { color: { argb: 'FF666666' } };
+      }
+
+      sno++;
+    }
+  };
+
+  if (pocResults) {
+    addSheet(pocResults, 'POC');
+  }
+
+  if (prodResults) {
+    addSheet(prodResults, 'PROD');
+  }
+
+  // Write to file
+  const reportDir = path.resolve(__dirname, '../reports');
+  fs.mkdirSync(reportDir, { recursive: true });
+  const excelPath = path.join(reportDir, 'shakeout-results.xlsx');
+  await workbook.xlsx.writeFile(excelPath);
+  console.log(`📊 Excel report generated: ${excelPath}`);
+
+  return excelPath;
+}
+
+// ===== JIRA =====
+
+function buildJiraSummary(pocResults: EnvResults | null, prodResults: EnvResults | null): string {
   const pocFailed = pocResults?.tests.filter((t) => t.status === 'failed' || t.status === 'timedOut') || [];
   const prodFailed = prodResults?.tests.filter((t) => t.status === 'failed' || t.status === 'timedOut') || [];
 
@@ -130,44 +347,16 @@ function buildJiraSummary(pocResults: EnvResults | null, prodResults: EnvResults
     envLabel = 'PROD';
   }
 
-  // Extract test group names from titles for concise summary
   const allFailed = [...pocFailed, ...prodFailed];
 
   if (allFailed.length === 1) {
-    // Single failure — use the full test title for descriptive summary
     const title = allFailed[0].title;
-    // Extract the meaningful part (after " > ")
     const parts = title.split(' > ');
     const testName = parts.length > 1 ? parts[parts.length - 1] : title;
-    // Append error context if available (what actually went wrong)
-    const error = allFailed[0].error;
-    let errorContext = '';
-    if (error) {
-      // Extract the key info: "Expected: not visible Received: visible" → "is visible for restricted user"
-      if (error.includes('not visible') && error.includes('Received: visible')) {
-        // Extract what element was unexpectedly visible
-        const locatorMatch = error.match(/locator\('([^']+)'\)/);
-        if (locatorMatch) {
-          const element = locatorMatch[1]
-            .replace('a[href="/', '')
-            .replace('"]', '')
-            .replace(/\//g, '');
-          errorContext = ` — ${element} tab is viewable for restricted role`;
-        } else {
-          errorContext = ' — element visible for restricted user';
-        }
-      } else if (error.includes('Expected: visible') || error.includes('toBeVisible')) {
-        errorContext = ' — element not found or not rendered';
-      } else if (error.includes('Timeout') || error.includes('timed out')) {
-        errorContext = ' — page timed out';
-      }
-    }
-    const fullSummary = `[Shakeout] ${envLabel} — ${testName}${errorContext}`;
-    // Jira summary max 255 chars
+    const fullSummary = `[Shakeout] ${envLabel} — ${testName}`;
     return fullSummary.length > 200 ? fullSummary.substring(0, 197) + '...' : fullSummary;
   }
 
-  // Multiple failures — extract unique test groups
   const groups = new Set<string>();
   for (const t of allFailed) {
     const title = t.title;
@@ -214,7 +403,7 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
   const auth = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
   const today = new Date().toISOString().slice(0, 10);
 
-  // --- DEDUPLICATION: Check for existing open shakeout tickets ---
+  // Deduplication: check for existing open shakeout tickets
   const existingKey = await findExistingShakeoutTicket(auth);
   if (existingKey) {
     console.log(`🔄 Open shakeout ticket found: ${existingKey} — adding comment instead of new ticket`);
@@ -222,8 +411,7 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
     return existingKey;
   }
 
-  // --- No existing ticket: create new one ---
-  const summary = buildJiraSummary(pocResults, prodResults, failedTests);
+  const summary = buildJiraSummary(pocResults, prodResults);
 
   const description = {
     type: 'doc',
@@ -239,22 +427,10 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
         content: [{ type: 'text', text: `Run time: ${new Date().toISOString()}` }],
       },
       ...(pocResults
-        ? [
-            {
-              type: 'heading',
-              attrs: { level: 3 },
-              content: [{ type: 'text', text: `POC: ${pocResults.passed}/${pocResults.total} passed` }],
-            },
-          ]
+        ? [{ type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: `POC: ${pocResults.passed}/${pocResults.total} passed` }] }]
         : []),
       ...(prodResults
-        ? [
-            {
-              type: 'heading',
-              attrs: { level: 3 },
-              content: [{ type: 'text', text: `PROD: ${prodResults.passed}/${prodResults.total} passed` }],
-            },
-          ]
+        ? [{ type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: `PROD: ${prodResults.passed}/${prodResults.total} passed` }] }]
         : []),
       {
         type: 'heading',
@@ -271,7 +447,6 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
     ],
   };
 
-  // Determine priority — login/auth failures are Highest, others are High
   const isLoginFailure = failedTests.some(
     (t) => t.toLowerCase().includes('login') ||
            t.toLowerCase().includes('auth') ||
@@ -327,17 +502,9 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
   });
 }
 
-/**
- * Search for an existing open shakeout ticket (not Done/Closed).
- * Returns the ticket key if found, null otherwise.
- */
 async function findExistingShakeoutTicket(auth: string): Promise<string | null> {
   const jql = 'project=PRJAT AND labels=shakeout AND labels=auto-created AND status != Done ORDER BY created DESC';
-  const body = JSON.stringify({
-    jql,
-    maxResults: 1,
-    fields: ['summary', 'status'],
-  });
+  const body = JSON.stringify({ jql, maxResults: 1, fields: ['summary', 'status'] });
 
   return new Promise((resolve) => {
     const req = https.request(
@@ -358,30 +525,19 @@ async function findExistingShakeoutTicket(auth: string): Promise<string | null> 
           try {
             const parsed = JSON.parse(data);
             const issues = parsed.issues || [];
-            if (issues.length > 0) {
-              resolve(issues[0].key);
-            } else {
-              resolve(null);
-            }
+            resolve(issues.length > 0 ? issues[0].key : null);
           } catch {
-            console.log(`⚠️  Jira search failed: ${data}`);
             resolve(null);
           }
         });
       },
     );
-    req.on('error', (e) => {
-      console.log(`⚠️  Jira search request failed: ${e.message}`);
-      resolve(null);
-    });
+    req.on('error', () => resolve(null));
     req.write(body);
     req.end();
   });
 }
 
-/**
- * Add a comment to an existing shakeout ticket with today's failures.
- */
 async function addJiraComment(auth: string, ticketKey: string, failedTests: string[], date: string): Promise<void> {
   const comment = {
     body: {
@@ -430,164 +586,14 @@ async function addJiraComment(auth: string, ticketKey: string, failedTests: stri
         });
       },
     );
-    req.on('error', (e) => {
-      console.log(`⚠️  Comment request failed: ${e.message}`);
-      resolve();
-    });
+    req.on('error', () => resolve());
     req.write(JSON.stringify(comment));
     req.end();
   });
 }
 
-function generateEmailHtml(pocResults: EnvResults | null, prodResults: EnvResults | null, jiraKey: string | null): string {
-  const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+// ===== SLACK =====
 
-  const renderEnv = (results: EnvResults | null, name: string): string => {
-    if (!results) {
-      return `<h3>${name}: No results (run may have failed to start)</h3>`;
-    }
-
-    const statusLabel = results.failed > 0 ? 'FAILED' : 'PASSED';
-    const statusColor = results.failed > 0 ? '#c62828' : '#2e7d32';
-    const rows = results.tests
-      .map(
-        (t) => {
-          const statusText = t.status === 'passed' ? 'Passed' : t.status === 'failed' ? 'Failed' : t.status === 'timedOut' ? 'Timed Out' : 'Skipped';
-          const rowColor = t.status === 'failed' || t.status === 'timedOut' ? 'background:#fff3f3;' : '';
-          return `
-      <tr style="${rowColor}">
-        <td style="padding:4px 8px;border:1px solid #ddd;">${statusText}</td>
-        <td style="padding:4px 8px;border:1px solid #ddd;">${t.title}</td>
-        <td style="padding:4px 8px;border:1px solid #ddd;">${(t.duration / 1000).toFixed(1)}s</td>
-        <td style="padding:4px 8px;border:1px solid #ddd;color:#c62828;">${t.error || ''}</td>
-      </tr>`;
-        },
-      )
-      .join('');
-
-    return `
-      <h3 style="color:${statusColor};">${name} — ${statusLabel} (${results.passed}/${results.total} passed, ${results.failed} failed)</h3>
-      <table style="border-collapse:collapse;width:100%;font-size:13px;">
-        <thead>
-          <tr style="background:#f5f5f5;">
-            <th style="padding:4px 8px;border:1px solid #ddd;">Status</th>
-            <th style="padding:4px 8px;border:1px solid #ddd;">Test</th>
-            <th style="padding:4px 8px;border:1px solid #ddd;">Duration</th>
-            <th style="padding:4px 8px;border:1px solid #ddd;">Error</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>`;
-  };
-
-  const jiraSection = jiraKey
-    ? `<p style="font-size:14px;padding:8px 12px;background:#fff3e0;border-left:4px solid #f9a825;margin:12px 0;">
-        <strong>Defect:</strong> <a href="https://quantarra.atlassian.net/browse/${jiraKey}">${jiraKey}</a> — created/updated for failing tests
-      </p>`
-    : '<p style="font-size:14px;padding:8px 12px;background:#e8f5e9;border-left:4px solid #2e7d32;margin:12px 0;"><strong>No defects</strong> — all tests passed</p>';
-
-  return `
-    <html>
-    <body style="font-family:Inter,Arial,sans-serif;padding:20px;">
-      <h2>Daily Shakeout Report — ${timestamp}</h2>
-      ${jiraSection}
-      <hr/>
-      ${renderEnv(pocResults, 'POC (poc.quantarra.com)')}
-      <br/>
-      ${renderEnv(prodResults, 'PROD (app.quantarra.com)')}
-      <hr/>
-      <p style="color:#666;font-size:12px;">
-        This is an automated report from Quantarra QA Automation.
-        Triggered at 9 AM IST and 7 PM IST daily.
-      </p>
-    </body>
-    </html>`;
-}
-
-async function sendEmail(html: string, hasFailures: boolean): Promise<void> {
-  const smtpHost = process.env.SMTP_HOST;
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPassword = process.env.SMTP_PASSWORD;
-  const recipients = process.env.REPORT_RECIPIENTS;
-
-  if (!smtpHost || !smtpUser || !recipients) {
-    console.log('⚠️  Email not configured — skipping email notification');
-    console.log('   Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, REPORT_RECIPIENTS');
-    // Write HTML to file as fallback
-    const reportPath = path.resolve(__dirname, '../reports/shakeout-report.html');
-    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-    fs.writeFileSync(reportPath, html);
-    console.log(`📄 Report written to: ${reportPath}`);
-    return;
-  }
-
-  const transporter = nodemailer.createTransport({
-    host: smtpHost,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: false,
-    auth: { user: smtpUser, pass: smtpPassword },
-  });
-
-  const today = new Date().toISOString().slice(0, 10);
-  const subject = hasFailures
-    ? `[SHAKEOUT FAILED] Daily Health Check — ${today}`
-    : `[SHAKEOUT PASSED] Daily Health Check — ${today}`;
-
-  await transporter.sendMail({
-    from: `"Quantarra QA" <${smtpUser}>`,
-    to: recipients,
-    subject,
-    html,
-  });
-
-  console.log(`📧 Email sent to: ${recipients}`);
-}
-
-// ===== MAIN =====
-async function main() {
-  console.log('📊 Processing shakeout results...\n');
-
-  const pocResults = parseResults(path.resolve(__dirname, '../reports/poc'), 'POC');
-  const prodResults = parseResults(path.resolve(__dirname, '../reports/prod'), 'PROD');
-
-  // Summary
-  if (pocResults) {
-    console.log(`POC:  ${pocResults.passed}/${pocResults.total} passed, ${pocResults.failed} failed`);
-  }
-  if (prodResults) {
-    console.log(`PROD: ${prodResults.passed}/${prodResults.total} passed, ${prodResults.failed} failed`);
-  }
-
-  const hasFailures =
-    (pocResults?.failed ?? 0) > 0 || (prodResults?.failed ?? 0) > 0 || !pocResults || !prodResults;
-
-  // Create Jira ticket if there are failures
-  let jiraKey: string | null = null;
-  if (hasFailures) {
-    jiraKey = await createJiraTicket(pocResults, prodResults);
-  }
-
-  // Post to Slack (only on failures)
-  if (hasFailures) {
-    await postToSlack(pocResults, prodResults, jiraKey);
-  }
-
-  // Generate and send email (always — includes pass status too)
-  const html = generateEmailHtml(pocResults, prodResults, jiraKey);
-  await sendEmail(html, hasFailures);
-
-  // Exit with appropriate code
-  if (hasFailures) {
-    console.log('\n❌ Shakeout has failures — see report above.');
-    process.exit(1);
-  } else {
-    console.log('\n✅ All shakeout tests passed on both environments.');
-  }
-}
-
-/**
- * Post failed test summary to Slack via Incoming Webhook.
- */
 async function postToSlack(pocResults: EnvResults | null, prodResults: EnvResults | null, jiraKey: string | null): Promise<void> {
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
 
@@ -598,7 +604,6 @@ async function postToSlack(pocResults: EnvResults | null, prodResults: EnvResult
 
   const today = new Date().toISOString().slice(0, 10);
 
-  // Build failed tests list
   const failedLines: string[] = [];
   if (pocResults) {
     pocResults.tests
@@ -611,7 +616,6 @@ async function postToSlack(pocResults: EnvResults | null, prodResults: EnvResult
       .forEach((t) => failedLines.push(`• *[PROD]* ${t.title}${t.error ? `\n   _${t.error}_` : ''}`));
   }
 
-  // Build summary line
   const pocSummary = pocResults ? `POC: ${pocResults.passed}/${pocResults.total} passed` : 'POC: No results';
   const prodSummary = prodResults ? `PROD: ${prodResults.passed}/${prodResults.total} passed` : 'PROD: No results';
 
@@ -632,9 +636,7 @@ async function postToSlack(pocResults: EnvResults | null, prodResults: EnvResult
           text: `*${pocSummary}*  |  *${prodSummary}*${jiraLine}`,
         },
       },
-      {
-        type: 'divider',
-      },
+      { type: 'divider' },
       {
         type: 'section',
         text: {
@@ -679,6 +681,99 @@ async function postToSlack(pocResults: EnvResults | null, prodResults: EnvResult
     req.write(body);
     req.end();
   });
+}
+
+// ===== SEND EMAIL =====
+
+async function sendEmail(html: string, hasFailures: boolean, excelPath: string): Promise<void> {
+  const smtpHost = process.env.SMTP_HOST;
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPassword = process.env.SMTP_PASSWORD;
+  const recipients = process.env.REPORT_RECIPIENTS;
+
+  if (!smtpHost || !smtpUser || !recipients) {
+    console.log('⚠️  Email not configured — skipping email notification');
+    console.log('   Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, REPORT_RECIPIENTS');
+    // Write HTML to file as fallback
+    const reportPath = path.resolve(__dirname, '../reports/shakeout-report.html');
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, html);
+    console.log(`📄 Report written to: ${reportPath}`);
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: smtpHost,
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: false,
+    auth: { user: smtpUser, pass: smtpPassword },
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const subject = hasFailures
+    ? `[SHAKEOUT FAILED] Daily Health Check — ${today}`
+    : `[SHAKEOUT PASSED] Daily Health Check — ${today}`;
+
+  await transporter.sendMail({
+    from: `"Quantarra QA" <${smtpUser}>`,
+    to: recipients,
+    subject,
+    html,
+    attachments: [
+      {
+        filename: `shakeout-results-${today}.xlsx`,
+        path: excelPath,
+      },
+    ],
+  });
+
+  console.log(`📧 Email sent to: ${recipients}`);
+}
+
+// ===== MAIN =====
+
+async function main() {
+  console.log('📊 Processing shakeout results...\n');
+
+  const pocResults = parseResults(path.resolve(__dirname, '../reports/poc'), 'POC');
+  const prodResults = parseResults(path.resolve(__dirname, '../reports/prod'), 'PROD');
+
+  // Summary
+  if (pocResults) {
+    console.log(`POC:  ${pocResults.passed}/${pocResults.total} passed, ${pocResults.failed} failed, ${pocResults.skipped} skipped`);
+  }
+  if (prodResults) {
+    console.log(`PROD: ${prodResults.passed}/${prodResults.total} passed, ${prodResults.failed} failed, ${prodResults.skipped} skipped`);
+  }
+
+  const hasFailures =
+    (pocResults?.failed ?? 0) > 0 || (prodResults?.failed ?? 0) > 0 || !pocResults || !prodResults;
+
+  // Create Jira ticket if there are failures
+  let jiraKey: string | null = null;
+  if (hasFailures) {
+    jiraKey = await createJiraTicket(pocResults, prodResults);
+  }
+
+  // Post to Slack (only on failures)
+  if (hasFailures) {
+    await postToSlack(pocResults, prodResults, jiraKey);
+  }
+
+  // Generate Excel attachment with detailed results
+  const excelPath = await generateExcelReport(pocResults, prodResults);
+
+  // Generate and send email (always — includes pass status too)
+  const html = generateEmailHtml(pocResults, prodResults, jiraKey);
+  await sendEmail(html, hasFailures, excelPath);
+
+  // Exit with appropriate code
+  if (hasFailures) {
+    console.log('\n❌ Shakeout has failures — see report above.');
+    process.exit(1);
+  } else {
+    console.log('\n✅ All shakeout tests passed on both environments.');
+  }
 }
 
 main().catch((e) => {
