@@ -17,6 +17,7 @@ import * as path from 'path';
 import * as https from 'https';
 import * as nodemailer from 'nodemailer';
 import ExcelJS from 'exceljs';
+import { getShakeoutConfig } from '../src/config/shakeout-config';
 
 // Load environment variables from .env
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
@@ -357,22 +358,22 @@ function buildJiraSummary(pocResults: EnvResults | null, prodResults: EnvResults
     return fullSummary.length > 200 ? fullSummary.substring(0, 197) + '...' : fullSummary;
   }
 
-  const groups = new Set<string>();
+  // Extract concise but meaningful test names from each failure
+  const testNames: string[] = [];
   for (const t of allFailed) {
-    const title = t.title;
-    if (title.includes('TG-1')) { groups.add('TG-1 Login'); }
-    else if (title.includes('TG-2')) { groups.add('TG-2 Navigation'); }
-    else if (title.includes('TG-3')) { groups.add('TG-3 RBAC'); }
-    else if (title.includes('TG-4')) { groups.add('TG-4 Admin'); }
-    else if (title.includes('TG-6')) { groups.add('TG-6 Audit'); }
-    else if (title.includes('MC')) { groups.add('MC'); }
-    else if (title.includes('Audit Portal')) { groups.add('Audit Portal'); }
-    else if (title.includes('API')) { groups.add('API'); }
-    else { groups.add(title.substring(0, 20)); }
+    const parts = t.title.split(' > ');
+    // Use the last part (actual test name) e.g. "TC-6: Click audit tile — shows 5 tabs"
+    const testName = parts.length > 1 ? parts[parts.length - 1] : t.title;
+    // Trim to keep it concise — take up to the first dash separator or 50 chars
+    const concise = testName.replace(/^TC-\d+:\s*/, '').substring(0, 50).trim();
+    testNames.push(concise);
   }
 
-  const groupList = Array.from(groups).join(', ');
-  return `[Shakeout] ${envLabel} — ${allFailed.length} tests failed (${groupList})`;
+  const nameList = testNames.join('; ');
+  const fullSummary = `[Shakeout] ${envLabel} — ${allFailed.length} failed: ${nameList}`;
+
+  // Jira summary limit is 255 chars — truncate if needed
+  return fullSummary.length > 200 ? fullSummary.substring(0, 197) + '...' : fullSummary;
 }
 
 async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvResults | null): Promise<string | null> {
@@ -384,21 +385,86 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
     return null;
   }
 
-  const failedTests: string[] = [];
+  interface FailedTestDetail {
+    env: string;
+    title: string;
+    testName: string;
+    group: string;
+    error: string;
+    issue: string;
+    expected: string;
+  }
+
+  const failedDetails: FailedTestDetail[] = [];
+
+  function extractFailureDetails(t: TestResult, env: string): FailedTestDetail {
+    const parts = t.title.split(' > ');
+    const group = parts[0] || '';
+    const testName = parts.length > 1 ? parts[parts.length - 1] : t.title;
+    const error = t.error || '';
+
+    // Derive human-readable "issue" and "expected" from the error context
+    let issue = '';
+    let expected = '';
+
+    if (error.includes('toBeVisible') || error.includes('not visible')) {
+      // Element visibility failures
+      const elementMatch = error.match(/locator\('([^']+)'\)|getByRole\('([^']+)'|getByText\('([^']+)'/);
+      const element = elementMatch?.[1] || elementMatch?.[2] || elementMatch?.[3] || 'expected element';
+      issue = `The "${element}" element is not visible on the page within the timeout period.`;
+      expected = `The element should be visible and accessible after page load.`;
+    } else if (error.includes('not.toBeVisible') || error.includes('is visible but should not be')) {
+      issue = `An element is visible on the page when it should be hidden (possible RBAC/permission issue).`;
+      expected = `The element should NOT be visible for the current user role.`;
+    } else if (error.includes('timeout') || error.includes('Timeout') || t.status === 'timedOut') {
+      issue = `Page or element did not load within the expected time. Possible performance issue or the page is broken.`;
+      expected = `The page should load and render its content within 30 seconds.`;
+    } else if (error.includes('401') || error.includes('Unauthorized')) {
+      issue = `Authentication failed — API returned 401 Unauthorized.`;
+      expected = `Login should succeed with valid credentials and return an access token.`;
+    } else if (error.includes('403') || error.includes('Forbidden')) {
+      issue = `Access denied — API returned 403 Forbidden. User may lack the required permission.`;
+      expected = `The user role should have access to this resource.`;
+    } else if (error.includes('500') || error.includes('Internal Server')) {
+      issue = `Server error — API returned 500 Internal Server Error.`;
+      expected = `The endpoint should respond with a successful status code (2xx).`;
+    } else if (error.includes('404') || error.includes('Not Found')) {
+      issue = `Resource not found — API returned 404. The endpoint or page may have been removed or renamed.`;
+      expected = `The resource should exist and be accessible.`;
+    } else if (error.includes('networkidle')) {
+      issue = `Page did not finish loading (network activity did not settle). Possible API hanging or infinite loading state.`;
+      expected = `All API calls should complete and the page should reach a stable state.`;
+    } else if (error) {
+      // Generic — use a cleaned-up version of the error
+      issue = error.substring(0, 200);
+      expected = `The test should pass without errors.`;
+    } else {
+      issue = `Test failed without a specific error message.`;
+      expected = `The test should pass successfully.`;
+    }
+
+    return { env, title: t.title, testName, group, error, issue, expected };
+  }
+
   if (pocResults) {
     pocResults.tests
       .filter((t) => t.status === 'failed' || t.status === 'timedOut')
-      .forEach((t) => failedTests.push(`[POC] ${t.title}${t.error ? ` — ${t.error}` : ''}`));
+      .forEach((t) => failedDetails.push(extractFailureDetails(t, 'POC')));
   }
   if (prodResults) {
     prodResults.tests
       .filter((t) => t.status === 'failed' || t.status === 'timedOut')
-      .forEach((t) => failedTests.push(`[PROD] ${t.title}${t.error ? ` — ${t.error}` : ''}`));
+      .forEach((t) => failedDetails.push(extractFailureDetails(t, 'PROD')));
   }
 
-  if (failedTests.length === 0) {
+  if (failedDetails.length === 0) {
     return null;
   }
+
+  // Keep the simple string list for comment deduplication flow
+  const failedTests = failedDetails.map(
+    (d) => `[${d.env}] ${d.title}${d.error ? ` — ${d.error}` : ''}`,
+  );
 
   const auth = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
   const today = new Date().toISOString().slice(0, 10);
@@ -413,6 +479,66 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
 
   const summary = buildJiraSummary(pocResults, prodResults);
 
+  // Build human-readable description with structured failure details
+  const envSummaryNodes: any[] = [];
+  if (pocResults) {
+    envSummaryNodes.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'POC: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: `${pocResults.passed} passed, ${pocResults.failed} failed, ${pocResults.skipped} skipped (out of ${pocResults.total})` },
+      ],
+    });
+  }
+  if (prodResults) {
+    envSummaryNodes.push({
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'PROD: ', marks: [{ type: 'strong' }] },
+        { type: 'text', text: `${prodResults.passed} passed, ${prodResults.failed} failed, ${prodResults.skipped} skipped (out of ${prodResults.total})` },
+      ],
+    });
+  }
+
+  // Build per-failure detail blocks
+  const failureBlocks: any[] = [];
+  for (let i = 0; i < failedDetails.length; i++) {
+    const d = failedDetails[i];
+    failureBlocks.push(
+      {
+        type: 'heading',
+        attrs: { level: 3 },
+        content: [{ type: 'text', text: `${i + 1}. [${d.env}] ${d.testName}` }],
+      },
+      {
+        type: 'bulletList',
+        content: [
+          {
+            type: 'listItem',
+            content: [{ type: 'paragraph', content: [
+              { type: 'text', text: 'Page/Area: ', marks: [{ type: 'strong' }] },
+              { type: 'text', text: d.group },
+            ] }],
+          },
+          {
+            type: 'listItem',
+            content: [{ type: 'paragraph', content: [
+              { type: 'text', text: 'What went wrong: ', marks: [{ type: 'strong' }] },
+              { type: 'text', text: d.issue },
+            ] }],
+          },
+          {
+            type: 'listItem',
+            content: [{ type: 'paragraph', content: [
+              { type: 'text', text: 'Expected behavior: ', marks: [{ type: 'strong' }] },
+              { type: 'text', text: d.expected },
+            ] }],
+          },
+        ],
+      },
+    );
+  }
+
   const description = {
     type: 'doc',
     version: 1,
@@ -420,29 +546,36 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
       {
         type: 'heading',
         attrs: { level: 2 },
-        content: [{ type: 'text', text: 'Daily Shakeout Failures' }],
+        content: [{ type: 'text', text: 'Automated Shakeout — Test Failures' }],
       },
       {
         type: 'paragraph',
-        content: [{ type: 'text', text: `Run time: ${new Date().toISOString()}` }],
+        content: [{ type: 'text', text: `Detected on: ${today} at ${new Date().toTimeString().slice(0, 8)} IST` }],
       },
-      ...(pocResults
-        ? [{ type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: `POC: ${pocResults.passed}/${pocResults.total} passed` }] }]
-        : []),
-      ...(prodResults
-        ? [{ type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: `PROD: ${prodResults.passed}/${prodResults.total} passed` }] }]
-        : []),
       {
         type: 'heading',
         attrs: { level: 3 },
-        content: [{ type: 'text', text: 'Failed Tests' }],
+        content: [{ type: 'text', text: 'Environment Summary' }],
+      },
+      ...envSummaryNodes,
+      {
+        type: 'rule',
       },
       {
-        type: 'bulletList',
-        content: failedTests.map((t) => ({
-          type: 'listItem',
-          content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }],
-        })),
+        type: 'heading',
+        attrs: { level: 2 },
+        content: [{ type: 'text', text: 'Failure Details' }],
+      },
+      ...failureBlocks,
+      {
+        type: 'rule',
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Note: ', marks: [{ type: 'strong' }] },
+          { type: 'text', text: 'This ticket was auto-created by the QA automation pipeline. Check the GitHub Actions run for screenshots and trace artifacts.' },
+        ],
       },
     ],
   };
@@ -735,8 +868,21 @@ async function sendEmail(html: string, hasFailures: boolean, excelPath: string):
 async function main() {
   console.log('📊 Processing shakeout results...\n');
 
-  const pocResults = parseResults(path.resolve(__dirname, '../reports/poc'), 'POC');
-  const prodResults = parseResults(path.resolve(__dirname, '../reports/prod'), 'PROD');
+  // Load configuration from Excel "Configuration" sheet
+  const config = getShakeoutConfig();
+  console.log('');
+
+  // Load results based on configured report environment
+  let pocResults: EnvResults | null = null;
+  let prodResults: EnvResults | null = null;
+
+  if (config.reportEnvironment === 'poc' || config.reportEnvironment === 'both') {
+    pocResults = parseResults(path.resolve(__dirname, '../reports/poc'), 'POC');
+  }
+
+  if (config.reportEnvironment === 'prod' || config.reportEnvironment === 'both') {
+    prodResults = parseResults(path.resolve(__dirname, '../reports/prod'), 'PROD');
+  }
 
   // Summary
   if (pocResults) {
@@ -747,32 +893,50 @@ async function main() {
   }
 
   const hasFailures =
-    (pocResults?.failed ?? 0) > 0 || (prodResults?.failed ?? 0) > 0 || !pocResults || !prodResults;
+    (pocResults?.failed ?? 0) > 0 || (prodResults?.failed ?? 0) > 0 || (!pocResults && !prodResults);
 
-  // Create Jira ticket if there are failures
+  // Create Jira ticket if there are failures (and Jira is enabled)
   let jiraKey: string | null = null;
   if (hasFailures) {
-    jiraKey = await createJiraTicket(pocResults, prodResults);
+    if (config.jiraEnabled) {
+      jiraKey = await createJiraTicket(pocResults, prodResults);
+    } else {
+      console.log('⏸️  Jira ticket creation disabled via Excel Configuration — skipping.');
+    }
   }
 
-  // Post to Slack (only on failures)
+  // Post to Slack (only on failures, if enabled)
   if (hasFailures) {
-    await postToSlack(pocResults, prodResults, jiraKey);
+    if (config.slackEnabled) {
+      await postToSlack(pocResults, prodResults, jiraKey);
+    } else {
+      console.log('⏸️  Slack notifications disabled via Excel Configuration — skipping.');
+    }
   }
 
   // Generate Excel attachment with detailed results
   const excelPath = await generateExcelReport(pocResults, prodResults);
 
-  // Generate and send email (always — includes pass status too)
-  const html = generateEmailHtml(pocResults, prodResults, jiraKey);
-  await sendEmail(html, hasFailures, excelPath);
+  // Generate and send email (if enabled)
+  if (config.emailEnabled) {
+    const html = generateEmailHtml(pocResults, prodResults, jiraKey);
+    await sendEmail(html, hasFailures, excelPath);
+  } else {
+    console.log('⏸️  Email notifications disabled via Excel Configuration — skipping.');
+    // Still write the HTML report locally as fallback
+    const html = generateEmailHtml(pocResults, prodResults, jiraKey);
+    const reportPath = path.resolve(__dirname, '../reports/shakeout-report.html');
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, html);
+    console.log(`📄 Report written locally: ${reportPath}`);
+  }
 
   // Exit with appropriate code
   if (hasFailures) {
     console.log('\n❌ Shakeout has failures — see report above.');
     process.exit(1);
   } else {
-    console.log('\n✅ All shakeout tests passed on both environments.');
+    console.log('\n✅ All shakeout tests passed.');
   }
 }
 
