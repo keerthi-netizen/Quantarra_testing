@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getEnvConfig } from '../../src/config/environment';
+import { checkGate } from './session-setup';
 
 /**
  * Daily Shakeout — 05: Audit Portal Availability
@@ -10,6 +11,13 @@ import { getEnvConfig } from '../../src/config/environment';
 const envConfig = getEnvConfig();
 
 test.describe('Audit Portal — App Availability', () => {
+
+  test.beforeEach(({}, testInfo) => {
+    const gateReason = checkGate();
+    if (gateReason) {
+      testInfo.skip(true, gateReason);
+    }
+  });
 
   test('Audit Portal — app is reachable', async ({ request }) => {
     const auditUrl = envConfig.auditUrl;

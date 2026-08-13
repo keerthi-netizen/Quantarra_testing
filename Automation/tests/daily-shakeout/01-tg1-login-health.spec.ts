@@ -18,7 +18,7 @@ import { shouldRun, printFilterSummary } from './excel-filter';
 const envConfig = getEnvConfig();
 const API = envConfig.apiUrl;
 
-test.describe('TG-1: Login Health & URL Availability', () => {
+test.describe.serial('TG-1: Login Health & URL Availability', () => {
 
   test.beforeAll(() => {
     printFilterSummary();

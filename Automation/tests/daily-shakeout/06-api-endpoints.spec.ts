@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { getEnvConfig } from '../../src/config/environment';
 import { getShakeoutAdmin } from './test-data';
+import { checkGate } from './session-setup';
 
 /**
  * Daily Shakeout — Core API Endpoints
@@ -22,6 +23,13 @@ let token: string;
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Core API Endpoints — Availability', () => {
+
+  test.beforeEach(({}, testInfo) => {
+    const gateReason = checkGate();
+    if (gateReason) {
+      testInfo.skip(true, gateReason);
+    }
+  });
 
   test('Auth — obtain token for API tests', async ({ request }) => {
     const admin = getShakeoutAdmin();

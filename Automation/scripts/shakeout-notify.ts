@@ -335,47 +335,6 @@ async function generateExcelReport(pocResults: EnvResults | null, prodResults: E
 
 // ===== JIRA =====
 
-function buildJiraSummary(pocResults: EnvResults | null, prodResults: EnvResults | null): string {
-  const pocFailed = pocResults?.tests.filter((t) => t.status === 'failed' || t.status === 'timedOut') || [];
-  const prodFailed = prodResults?.tests.filter((t) => t.status === 'failed' || t.status === 'timedOut') || [];
-
-  let envLabel = '';
-  if (pocFailed.length > 0 && prodFailed.length > 0) {
-    envLabel = 'POC + PROD';
-  } else if (pocFailed.length > 0) {
-    envLabel = 'POC';
-  } else {
-    envLabel = 'PROD';
-  }
-
-  const allFailed = [...pocFailed, ...prodFailed];
-
-  if (allFailed.length === 1) {
-    const title = allFailed[0].title;
-    const parts = title.split(' > ');
-    const testName = parts.length > 1 ? parts[parts.length - 1] : title;
-    const fullSummary = `[Shakeout] ${envLabel} — ${testName}`;
-    return fullSummary.length > 200 ? fullSummary.substring(0, 197) + '...' : fullSummary;
-  }
-
-  // Extract concise but meaningful test names from each failure
-  const testNames: string[] = [];
-  for (const t of allFailed) {
-    const parts = t.title.split(' > ');
-    // Use the last part (actual test name) e.g. "TC-6: Click audit tile — shows 5 tabs"
-    const testName = parts.length > 1 ? parts[parts.length - 1] : t.title;
-    // Trim to keep it concise — take up to the first dash separator or 50 chars
-    const concise = testName.replace(/^TC-\d+:\s*/, '').substring(0, 50).trim();
-    testNames.push(concise);
-  }
-
-  const nameList = testNames.join('; ');
-  const fullSummary = `[Shakeout] ${envLabel} — ${allFailed.length} failed: ${nameList}`;
-
-  // Jira summary limit is 255 chars — truncate if needed
-  return fullSummary.length > 200 ? fullSummary.substring(0, 197) + '...' : fullSummary;
-}
-
 async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvResults | null): Promise<string | null> {
   const jiraEmail = process.env.JIRA_EMAIL;
   const jiraToken = process.env.JIRA_API_TOKEN;
@@ -395,8 +354,6 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
     expected: string;
   }
 
-  const failedDetails: FailedTestDetail[] = [];
-
   function extractFailureDetails(t: TestResult, env: string): FailedTestDetail {
     const parts = t.title.split(' > ');
     const group = parts[0] || '';
@@ -408,7 +365,6 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
     let expected = '';
 
     if (error.includes('toBeVisible') || error.includes('not visible')) {
-      // Element visibility failures
       const elementMatch = error.match(/locator\('([^']+)'\)|getByRole\('([^']+)'|getByText\('([^']+)'/);
       const element = elementMatch?.[1] || elementMatch?.[2] || elementMatch?.[3] || 'expected element';
       issue = `The "${element}" element is not visible on the page within the timeout period.`;
@@ -435,7 +391,6 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
       issue = `Page did not finish loading (network activity did not settle). Possible API hanging or infinite loading state.`;
       expected = `All API calls should complete and the page should reach a stable state.`;
     } else if (error) {
-      // Generic — use a cleaned-up version of the error
       issue = error.substring(0, 200);
       expected = `The test should pass without errors.`;
     } else {
@@ -445,6 +400,8 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
 
     return { env, title: t.title, testName, group, error, issue, expected };
   }
+
+  const failedDetails: FailedTestDetail[] = [];
 
   if (pocResults) {
     pocResults.tests
@@ -461,54 +418,138 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
     return null;
   }
 
-  // Keep the simple string list for comment deduplication flow
-  const failedTests = failedDetails.map(
-    (d) => `[${d.env}] ${d.title}${d.error ? ` — ${d.error}` : ''}`,
-  );
-
   const auth = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
   const today = new Date().toISOString().slice(0, 10);
 
-  // Deduplication: check for existing open shakeout tickets
-  const existingKey = await findExistingShakeoutTicket(auth);
-  if (existingKey) {
-    console.log(`🔄 Open shakeout ticket found: ${existingKey} — adding comment instead of new ticket`);
-    await addJiraComment(auth, existingKey, failedTests, today);
-    return existingKey;
-  }
+  // Create one ticket per failed test case (with deduplication)
+  const createdKeys: string[] = [];
 
-  const summary = buildJiraSummary(pocResults, prodResults);
+  for (const detail of failedDetails) {
+    // Dedup: check if an open ticket already exists for this specific test
+    const existingKey = await findExistingTicketForTest(auth, detail.testName, detail.env);
 
-  // Build human-readable description with structured failure details
-  const envSummaryNodes: any[] = [];
-  if (pocResults) {
-    envSummaryNodes.push({
-      type: 'paragraph',
-      content: [
-        { type: 'text', text: 'POC: ', marks: [{ type: 'strong' }] },
-        { type: 'text', text: `${pocResults.passed} passed, ${pocResults.failed} failed, ${pocResults.skipped} skipped (out of ${pocResults.total})` },
-      ],
+    if (existingKey) {
+      console.log(`🔄 Open ticket found for "${detail.testName}": ${existingKey} — adding comment`);
+      await addRerunComment(auth, existingKey, detail, today);
+      createdKeys.push(existingKey);
+      continue;
+    }
+
+    // Build individual ticket summary
+    const summary = buildIndividualSummary(detail);
+
+    // Build human-readable description
+    const description = buildIndividualDescription(detail, today, pocResults, prodResults);
+
+    // Determine priority
+    const isLoginFailure =
+      detail.testName.toLowerCase().includes('login') ||
+      detail.testName.toLowerCase().includes('auth') ||
+      detail.testName.toLowerCase().includes('health') ||
+      detail.testName.toLowerCase().includes('token');
+    const priority = isLoginFailure ? 'Highest' : 'High';
+
+    const body = JSON.stringify({
+      fields: {
+        project: { key: process.env.JIRA_PROJECT_KEY || 'PRJAT' },
+        summary,
+        description,
+        issuetype: { name: 'Bug' },
+        priority: { name: priority },
+        labels: ['shakeout', 'auto-created', `env-${detail.env.toLowerCase()}`],
+      },
     });
-  }
-  if (prodResults) {
-    envSummaryNodes.push({
-      type: 'paragraph',
-      content: [
-        { type: 'text', text: 'PROD: ', marks: [{ type: 'strong' }] },
-        { type: 'text', text: `${prodResults.passed} passed, ${prodResults.failed} failed, ${prodResults.skipped} skipped (out of ${prodResults.total})` },
-      ],
-    });
+
+    const key = await postJiraTicket(auth, body);
+    if (key) {
+      createdKeys.push(key);
+    }
   }
 
-  // Build per-failure detail blocks
-  const failureBlocks: any[] = [];
-  for (let i = 0; i < failedDetails.length; i++) {
-    const d = failedDetails[i];
-    failureBlocks.push(
+  // Return first key for Slack notification linking
+  return createdKeys.length > 0 ? createdKeys[0] : null;
+}
+
+/**
+ * Build a concise but meaningful summary for a single test failure.
+ */
+function buildIndividualSummary(detail: { env: string; testName: string; issue: string }): string {
+  // Remove TC-X: prefix from test name for cleaner summary
+  const cleanName = detail.testName.replace(/^TC-\d+:\s*/, '').trim();
+
+  // Try to make it issue-focused
+  let issueHint = '';
+  if (detail.issue.includes('not visible')) {
+    issueHint = ' — element not visible';
+  } else if (detail.issue.includes('did not load')) {
+    issueHint = ' — page timeout';
+  } else if (detail.issue.includes('401')) {
+    issueHint = ' — auth failed';
+  } else if (detail.issue.includes('403')) {
+    issueHint = ' — access denied';
+  } else if (detail.issue.includes('500')) {
+    issueHint = ' — server error';
+  } else if (detail.issue.includes('404')) {
+    issueHint = ' — not found';
+  }
+
+  const summary = `[Shakeout] ${detail.env} — ${cleanName}${issueHint}`;
+  return summary.length > 200 ? summary.substring(0, 197) + '...' : summary;
+}
+
+/**
+ * Build a structured, human-readable description for a single test failure.
+ */
+function buildIndividualDescription(
+  detail: { env: string; testName: string; group: string; issue: string; expected: string; error: string },
+  today: string,
+  pocResults: EnvResults | null,
+  prodResults: EnvResults | null,
+): any {
+  const envResults = detail.env === 'POC' ? pocResults : prodResults;
+  const envSummaryText = envResults
+    ? `${envResults.passed} passed, ${envResults.failed} failed, ${envResults.skipped} skipped (out of ${envResults.total})`
+    : 'Results not available';
+
+  return {
+    type: 'doc',
+    version: 1,
+    content: [
+      {
+        type: 'heading',
+        attrs: { level: 2 },
+        content: [{ type: 'text', text: detail.testName }],
+      },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Environment: ', marks: [{ type: 'strong' }] },
+          { type: 'text', text: `${detail.env} | Detected on: ${today}` },
+        ],
+      },
+      { type: 'rule' },
       {
         type: 'heading',
         attrs: { level: 3 },
-        content: [{ type: 'text', text: `${i + 1}. [${d.env}] ${d.testName}` }],
+        content: [{ type: 'text', text: 'What went wrong' }],
+      },
+      {
+        type: 'paragraph',
+        content: [{ type: 'text', text: detail.issue }],
+      },
+      {
+        type: 'heading',
+        attrs: { level: 3 },
+        content: [{ type: 'text', text: 'Expected behavior' }],
+      },
+      {
+        type: 'paragraph',
+        content: [{ type: 'text', text: detail.expected }],
+      },
+      {
+        type: 'heading',
+        attrs: { level: 3 },
+        content: [{ type: 'text', text: 'Test details' }],
       },
       {
         type: 'bulletList',
@@ -516,127 +557,60 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
           {
             type: 'listItem',
             content: [{ type: 'paragraph', content: [
-              { type: 'text', text: 'Page/Area: ', marks: [{ type: 'strong' }] },
-              { type: 'text', text: d.group },
+              { type: 'text', text: 'Test group: ', marks: [{ type: 'strong' }] },
+              { type: 'text', text: detail.group },
             ] }],
           },
           {
             type: 'listItem',
             content: [{ type: 'paragraph', content: [
-              { type: 'text', text: 'What went wrong: ', marks: [{ type: 'strong' }] },
-              { type: 'text', text: d.issue },
+              { type: 'text', text: 'Test case: ', marks: [{ type: 'strong' }] },
+              { type: 'text', text: detail.testName },
             ] }],
           },
           {
             type: 'listItem',
             content: [{ type: 'paragraph', content: [
-              { type: 'text', text: 'Expected behavior: ', marks: [{ type: 'strong' }] },
-              { type: 'text', text: d.expected },
+              { type: 'text', text: 'Environment run: ', marks: [{ type: 'strong' }] },
+              { type: 'text', text: envSummaryText },
             ] }],
           },
         ],
       },
-    );
-  }
-
-  const description = {
-    type: 'doc',
-    version: 1,
-    content: [
-      {
-        type: 'heading',
-        attrs: { level: 2 },
-        content: [{ type: 'text', text: 'Automated Shakeout — Test Failures' }],
-      },
-      {
-        type: 'paragraph',
-        content: [{ type: 'text', text: `Detected on: ${today} at ${new Date().toTimeString().slice(0, 8)} IST` }],
-      },
-      {
-        type: 'heading',
-        attrs: { level: 3 },
-        content: [{ type: 'text', text: 'Environment Summary' }],
-      },
-      ...envSummaryNodes,
-      {
-        type: 'rule',
-      },
-      {
-        type: 'heading',
-        attrs: { level: 2 },
-        content: [{ type: 'text', text: 'Failure Details' }],
-      },
-      ...failureBlocks,
-      {
-        type: 'rule',
-      },
+      ...(detail.error
+        ? [
+            {
+              type: 'heading',
+              attrs: { level: 3 },
+              content: [{ type: 'text', text: 'Raw error (for debugging)' }],
+            },
+            {
+              type: 'codeBlock',
+              attrs: { language: 'text' },
+              content: [{ type: 'text', text: detail.error.substring(0, 500) }],
+            },
+          ]
+        : []),
+      { type: 'rule' },
       {
         type: 'paragraph',
         content: [
           { type: 'text', text: 'Note: ', marks: [{ type: 'strong' }] },
-          { type: 'text', text: 'This ticket was auto-created by the QA automation pipeline. Check the GitHub Actions run for screenshots and trace artifacts.' },
+          { type: 'text', text: 'Auto-created by QA pipeline. Check GitHub Actions for screenshots and trace artifacts.' },
         ],
       },
     ],
   };
-
-  const isLoginFailure = failedTests.some(
-    (t) => t.toLowerCase().includes('login') ||
-           t.toLowerCase().includes('auth') ||
-           t.toLowerCase().includes('health endpoint') ||
-           t.toLowerCase().includes('token'),
-  );
-  const priority = isLoginFailure ? 'Highest' : 'High';
-
-  const body = JSON.stringify({
-    fields: {
-      project: { key: process.env.JIRA_PROJECT_KEY || 'PRJAT' },
-      summary,
-      description,
-      issuetype: { name: 'Bug' },
-      priority: { name: priority },
-      labels: ['shakeout', 'environment-health', 'auto-created'],
-    },
-  });
-
-  return new Promise((resolve) => {
-    const req = https.request(
-      {
-        hostname: 'quantarra.atlassian.net',
-        path: '/rest/api/3/issue',
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${auth}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk) => (data += chunk));
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(data);
-            console.log(`✅ Jira ticket created: ${parsed.key}`);
-            resolve(parsed.key);
-          } catch {
-            console.log(`⚠️  Jira response: ${data}`);
-            resolve(null);
-          }
-        });
-      },
-    );
-    req.on('error', (e) => {
-      console.log(`⚠️  Jira request failed: ${e.message}`);
-      resolve(null);
-    });
-    req.write(body);
-    req.end();
-  });
 }
 
-async function findExistingShakeoutTicket(auth: string): Promise<string | null> {
-  const jql = 'project=PRJAT AND labels=shakeout AND labels=auto-created AND status != Done ORDER BY created DESC';
+/**
+ * Search for an existing open ticket for a specific test case.
+ * Deduplicates by test name + environment.
+ */
+async function findExistingTicketForTest(auth: string, testName: string, env: string): Promise<string | null> {
+  // Search for open tickets with the same test name in summary
+  const cleanName = testName.replace(/^TC-\d+:\s*/, '').trim().substring(0, 50);
+  const jql = `project=PRJAT AND labels=shakeout AND labels=auto-created AND labels="env-${env.toLowerCase()}" AND status != Done AND summary ~ "${cleanName.replace(/"/g, '\\"')}" ORDER BY created DESC`;
   const body = JSON.stringify({ jql, maxResults: 1, fields: ['summary', 'status'] });
 
   return new Promise((resolve) => {
@@ -671,7 +645,15 @@ async function findExistingShakeoutTicket(auth: string): Promise<string | null> 
   });
 }
 
-async function addJiraComment(auth: string, ticketKey: string, failedTests: string[], date: string): Promise<void> {
+/**
+ * Add a re-run comment to an existing ticket (test still failing).
+ */
+async function addRerunComment(
+  auth: string,
+  ticketKey: string,
+  detail: { env: string; testName: string; issue: string },
+  date: string,
+): Promise<void> {
   const comment = {
     body: {
       type: 'doc',
@@ -680,15 +662,21 @@ async function addJiraComment(auth: string, ticketKey: string, failedTests: stri
         {
           type: 'paragraph',
           content: [
-            { type: 'text', text: `Shakeout re-run (${date}) — ${failedTests.length} test(s) still failing:`, marks: [{ type: 'strong' }] },
+            { type: 'text', text: `Re-run (${date}): `, marks: [{ type: 'strong' }] },
+            { type: 'text', text: 'Still failing.' },
           ],
         },
         {
           type: 'bulletList',
-          content: failedTests.map((t) => ({
-            type: 'listItem',
-            content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }],
-          })),
+          content: [
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [
+                { type: 'text', text: 'Issue: ', marks: [{ type: 'strong' }] },
+                { type: 'text', text: detail.issue },
+              ] }],
+            },
+          ],
         },
       ],
     },
@@ -724,6 +712,53 @@ async function addJiraComment(auth: string, ticketKey: string, failedTests: stri
     req.end();
   });
 }
+
+/**
+ * Post a single Jira ticket. Returns the created ticket key or null.
+ */
+async function postJiraTicket(auth: string, body: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        hostname: 'quantarra.atlassian.net',
+        path: '/rest/api/3/issue',
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.key) {
+              console.log(`✅ Jira ticket created: ${parsed.key}`);
+              resolve(parsed.key);
+            } else {
+              console.log(`⚠️  Jira response (no key): ${data.substring(0, 200)}`);
+              resolve(null);
+            }
+          } catch {
+            console.log(`⚠️  Jira response: ${data.substring(0, 200)}`);
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on('error', (e) => {
+      console.log(`⚠️  Jira request failed: ${e.message}`);
+      resolve(null);
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
+// Old findExistingShakeoutTicket and addJiraComment removed — replaced by per-test deduplication above.
 
 // ===== SLACK =====
 
