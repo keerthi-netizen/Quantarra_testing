@@ -857,11 +857,14 @@ async function sendEmail(html: string, hasFailures: boolean, excelPath: string):
   const smtpHost = process.env.SMTP_HOST;
   const smtpUser = process.env.SMTP_USER;
   const smtpPassword = process.env.SMTP_PASSWORD;
-  const recipients = process.env.REPORT_RECIPIENTS;
+
+  // Email recipients: Excel "Configuration" sheet takes priority, env var as fallback
+  const config = getShakeoutConfig();
+  const recipients = config.emailRecipients || process.env.REPORT_RECIPIENTS;
 
   if (!smtpHost || !smtpUser || !recipients) {
     console.log('⚠️  Email not configured — skipping email notification');
-    console.log('   Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, REPORT_RECIPIENTS');
+    console.log('   Set SMTP_HOST, SMTP_USER, and either Excel "Email Recipients" or REPORT_RECIPIENTS env var');
     // Write HTML to file as fallback
     const reportPath = path.resolve(__dirname, '../reports/shakeout-report.html');
     fs.mkdirSync(path.dirname(reportPath), { recursive: true });

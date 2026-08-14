@@ -9,12 +9,13 @@
  *   Column B: "Value"   — the configuration value (Yes/No, or a string)
  *
  * Supported settings:
- *   | Setting              | Values       | Default | Description                           |
- *   |----------------------|--------------|---------|---------------------------------------|
- *   | Slack Notifications  | Yes / No     | Yes     | Post to Slack channel on failures     |
- *   | Email Notifications  | Yes / No     | Yes     | Send email report (pass or fail)      |
- *   | Jira Ticket Creation | Yes / No     | Yes     | Create/update Jira ticket on failures |
- *   | Report Environment   | prod/poc/both| both    | Which environment(s) to report on     |
+ *   | Setting              | Values                    | Default | Description                           |
+ *   |----------------------|---------------------------|---------|---------------------------------------|
+ *   | Slack Notifications  | Yes / No                  | Yes     | Post to Slack channel on failures     |
+ *   | Email Notifications  | Yes / No                  | Yes     | Send email report (pass or fail)      |
+ *   | Jira Ticket Creation | Yes / No                  | Yes     | Create/update Jira ticket on failures |
+ *   | Report Environment   | prod / poc / both         | both    | Which environment(s) to report on     |
+ *   | Email Recipients     | comma-separated emails    | (env)   | Distribution list for email reports   |
  *
  * Usage:
  *   import { getShakeoutConfig } from '../src/config/shakeout-config';
@@ -33,6 +34,8 @@ export interface ShakeoutConfig {
   jiraEnabled: boolean;
   /** Which environments to include in the report: 'prod' | 'poc' | 'both' */
   reportEnvironment: 'prod' | 'poc' | 'both';
+  /** Comma-separated email addresses for report distribution. Falls back to REPORT_RECIPIENTS env var if not set. */
+  emailRecipients: string | null;
 }
 
 const DEFAULTS: ShakeoutConfig = {
@@ -40,6 +43,7 @@ const DEFAULTS: ShakeoutConfig = {
   emailEnabled: true,
   jiraEnabled: true,
   reportEnvironment: 'both',
+  emailRecipients: null,
 };
 
 let _configCache: ShakeoutConfig | null = null;
@@ -90,6 +94,14 @@ export function getShakeoutConfig(): ShakeoutConfig {
             config.reportEnvironment = value;
           }
           break;
+        case 'email recipients': {
+          // Read raw value (not lowercased) to preserve email casing
+          const rawValue = String(row['Value'] || '').trim();
+          if (rawValue) {
+            config.emailRecipients = rawValue;
+          }
+          break;
+        }
       }
     }
 
@@ -98,6 +110,7 @@ export function getShakeoutConfig(): ShakeoutConfig {
     console.log(`  Email Notifications:  ${config.emailEnabled ? '✅ Enabled' : '⏸️  Disabled'}`);
     console.log(`  Jira Ticket Creation: ${config.jiraEnabled ? '✅ Enabled' : '⏸️  Disabled'}`);
     console.log(`  Report Environment:   ${config.reportEnvironment}`);
+    console.log(`  Email Recipients:     ${config.emailRecipients || '(from REPORT_RECIPIENTS env var)'}`);
 
     _configCache = config;
     return _configCache;
