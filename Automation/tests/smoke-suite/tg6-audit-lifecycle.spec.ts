@@ -22,7 +22,7 @@ import { getSmokeAdmin } from './test-data';
  *   - Close: button text "Close"
  *   - Submit: button text "Create audit" (disabled until name + framework filled)
  *
- * Audit name format: ST-SOC2-{YYYYMMDD}-{increment}
+ * Audit name format: RG-SOC2-{YYYYMMDD}-{increment}
  */
 
 function generateAuditName(): string {
@@ -32,7 +32,7 @@ function generateAuditName(): string {
   const fw = process.env.FRAMEWORK_TYPE && process.env.FRAMEWORK_TYPE !== 'N/A'
     ? process.env.FRAMEWORK_TYPE.substring(0, 10).replace(/\s+/g, '')
     : 'SOC2';
-  return `ST-${fw}-${date}-${increment}`;
+  return `RG-${fw}-${date}-${increment}`;
 }
 
 function getTodayDate(): string {

@@ -80,7 +80,7 @@ test.describe('TG-6 TC-7: Audit Search and Load Existing Audit', () => {
     }
 
     const auditText = await firstAuditTile.textContent();
-    const searchTerm = auditText?.trim().substring(0, 5) || 'ST-';
+    const searchTerm = auditText?.trim().substring(0, 5) || 'RG-';
 
     const searchBox = page.locator('input[placeholder*="Search audit"], input[placeholder*="Search"]').first();
     if (!(await searchBox.isVisible({ timeout: 5000 }).catch(() => false))) {
