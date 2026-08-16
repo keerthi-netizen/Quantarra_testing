@@ -24,15 +24,30 @@ export default defineConfig({
   },
 
   projects: [
+    // --- Auth Setup (runs before daily-shakeout and regression) ---
+    {
+      name: 'auth-setup',
+      testDir: './tests/daily-shakeout',
+      testMatch: '00-auth-setup.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.baseUrl,
+      },
+    },
+
     // --- Daily Shakeout (POC + Prod environment health) ---
     {
       name: 'daily-shakeout',
       testDir: './tests/daily-shakeout',
+      testIgnore: '00-auth-setup.spec.ts',
+      dependencies: ['auth-setup'],
       fullyParallel: false,
+      retries: 2,
       workers: 1,
       use: {
         ...devices['Desktop Chrome'],
         baseURL: envConfig.baseUrl,
+        navigationTimeout: 30000,
       },
     },
 
@@ -40,6 +55,8 @@ export default defineConfig({
     {
       name: 'regression',
       testDir: './tests/daily-shakeout',
+      testIgnore: '00-auth-setup.spec.ts',
+      dependencies: ['auth-setup'],
       fullyParallel: false,
       workers: 1,
       use: {
