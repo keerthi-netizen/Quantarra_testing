@@ -39,7 +39,7 @@ function getAuditSearchName(): string {
   if (fs.existsSync(statePath)) {
     const stat = fs.statSync(statePath);
     const ageMs = Date.now() - stat.mtimeMs;
-    const MAX_AGE = 10 * 60 * 1000; // 10 minutes
+    const MAX_AGE = 30 * 60 * 1000; // 30 minutes
 
     if (ageMs < MAX_AGE) {
       try {
@@ -72,6 +72,44 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
       testInfo.skip(true, gateReason);
     }
   });
+
+  /** Helper: navigate to home, search for the correct audit, and click it */
+  async function navigateToAudit(page) {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    const auditName = getAuditSearchName();
+    const searchTerm = auditName.substring(0, 15);
+
+    // Search for the audit
+    const searchBox = page.locator('input[placeholder*="Search" i]').first();
+    await expect(searchBox).toBeVisible({ timeout: 30000 });
+    await searchBox.fill(searchTerm);
+    await page.waitForLoadState('networkidle');
+
+    // Click the matching audit tile
+    const auditLink = page.locator('a[href*="/audit/"]').first();
+    await expect(auditLink).toBeVisible({ timeout: 15000 });
+    await auditLink.click();
+    await page.waitForURL(/\/audit\//, { timeout: 30000 });
+    await page.waitForLoadState('networkidle');
+  }
+
+  /** Helper: navigate to audit → Workspace → All Controls tab */
+  async function navigateToAllControls(page) {
+    await navigateToAudit(page);
+
+    const wsTab = page.getByRole('tab', { name: /workspace/i });
+    await expect(wsTab).toBeVisible({ timeout: 15000 });
+    await wsTab.click();
+    await page.waitForLoadState('networkidle');
+
+    const allControlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /all controls/i }).first();
+    if (await allControlsTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await allControlsTab.click();
+      await page.waitForLoadState('networkidle');
+    }
+  }
 
   test('TC-1: Navigate to Home page', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-1'), 'Excluded by Excel');
@@ -115,6 +153,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
 
     const auditName = getAuditSearchName();
     const searchTerm = auditName.substring(0, 15);
+    console.log(`  🔍 Searching for: "${searchTerm}" (from: "${auditName}")`);
 
     const searchBox = page.locator('input[placeholder*="Search" i]').first();
     await expect(searchBox).toBeVisible({ timeout: 30000 });
@@ -129,28 +168,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-5: Navigate to Workspace → Controls → All Controls', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-5'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Click first audit tile
-    const auditLink = page.locator('a[href*="/audit/"]').first();
-    await expect(auditLink).toBeVisible({ timeout: 30000 });
-    await auditLink.click();
-    await page.waitForURL(/\/audit\//, { timeout: 30000 });
-    await page.waitForLoadState('networkidle');
-
-    // Click Workspace tab
-    const wsTab = page.getByRole('tab', { name: /workspace/i });
-    await expect(wsTab).toBeVisible({ timeout: 15000 });
-    await wsTab.click();
-    await page.waitForLoadState('networkidle');
-
-    // Look for "All Controls" sub-tab or verify controls table is visible
-    const allControlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /all controls/i }).first();
-    if (await allControlsTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await allControlsTab.click();
-      await page.waitForLoadState('networkidle');
-    }
+    await navigateToAllControls(page);
 
     // Verify controls table is displayed
     const table = page.locator('table, [role="table"], [role="grid"]').first();
@@ -160,18 +178,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-6: Verify table columns — Control ID, Owner, Function, Status, Due Date, etc.', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-6'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Navigate to audit → workspace → controls
-    const auditLink = page.locator('a[href*="/audit/"]').first();
-    await auditLink.click();
-    await page.waitForURL(/\/audit\//, { timeout: 30000 });
-    await page.waitForLoadState('networkidle');
-
-    const wsTab = page.getByRole('tab', { name: /workspace/i });
-    await wsTab.click();
-    await page.waitForLoadState('networkidle');
+    await navigateToAllControls(page);
 
     // Verify key columns are present in the table header
     const headerRow = page.locator('table thead tr, [role="row"]').first();
@@ -189,25 +196,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-7 to TC-12: Find unassigned control and assign to Matrix_Admin', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-7'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Navigate to audit → workspace → controls
-    const auditLink = page.locator('a[href*="/audit/"]').first();
-    await auditLink.click();
-    await page.waitForURL(/\/audit\//, { timeout: 30000 });
-    await page.waitForLoadState('networkidle');
-
-    const wsTab = page.getByRole('tab', { name: /workspace/i });
-    await wsTab.click();
-    await page.waitForLoadState('networkidle');
-
-    // Look for "All Controls" sub-tab
-    const allControlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /all controls/i }).first();
-    if (await allControlsTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await allControlsTab.click();
-      await page.waitForLoadState('networkidle');
-    }
+    await navigateToAllControls(page);
 
     // TC-7: Find an unassigned control with "+ Assign" button
     const assignBtn = page.locator('button, span, a').filter({ hasText: /\+\s*assign|assign/i }).first();
@@ -255,14 +244,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-13: Navigate to Controls I Own — assigned control visible', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-13'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Navigate to audit → workspace
-    const auditLink = page.locator('a[href*="/audit/"]').first();
-    await auditLink.click();
-    await page.waitForURL(/\/audit\//, { timeout: 30000 });
-    await page.waitForLoadState('networkidle');
+    await navigateToAudit(page);
 
     const wsTab = page.getByRole('tab', { name: /workspace/i });
     await wsTab.click();
@@ -288,14 +270,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-14: Select the control to open Control detail', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-14'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Navigate to audit → workspace → Controls I Own
-    const auditLink = page.locator('a[href*="/audit/"]').first();
-    await auditLink.click();
-    await page.waitForURL(/\/audit\//, { timeout: 30000 });
-    await page.waitForLoadState('networkidle');
+    await navigateToAudit(page);
 
     const wsTab = page.getByRole('tab', { name: /workspace/i });
     await wsTab.click();
