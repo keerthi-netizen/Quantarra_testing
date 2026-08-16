@@ -1,7 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { getAdminSessionPath, checkGate } from '../daily-shakeout/session-setup';
+import { checkGate } from '../daily-shakeout/session-setup';
 import { shouldRunE2E } from '../daily-shakeout/excel-filter';
 import { getEnvConfig } from '../../src/config/environment';
+import { getSmokeAdmin } from './test-data';
+import { dismissWizard } from '../../src/helpers/auth';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * E2E Flow 2: Assign Control to User
@@ -14,7 +18,8 @@ import { getEnvConfig } from '../../src/config/environment';
  * 5. Assign it to "Matrix_Admin"
  * 6. Verify it appears in "Controls I Own" tab
  *
- * Audit name: uses AUDIT_NAME env var, or falls back to "Integrations SOC Type 2 Test"
+ * Audit name: reads from .auth/e2e-state.json (written by Flow 1),
+ * falls back to AUDIT_NAME env var, then to "Integrations SOC Type 2 Test"
  *
  * Wait strategy: Explicit waits only. No hard sleeps.
  */
@@ -22,13 +27,27 @@ import { getEnvConfig } from '../../src/config/environment';
 const FLOW = 'E2E Flow 2';
 const envConfig = getEnvConfig();
 
-// Audit to search for — from env var (passed from Flow 1) or default
+// Audit to search for — from state file (Flow 1) > env var > default
 function getAuditSearchName(): string {
+  // Try reading from shared state file (written by Flow 1)
+  const statePath = path.resolve(__dirname, '../../.auth/e2e-state.json');
+  if (fs.existsSync(statePath)) {
+    try {
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+      if (state.auditName) {
+        console.log(`  📖 Using audit name from Flow 1: ${state.auditName}`);
+        return state.auditName;
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  // Fallback to env var or default
   return process.env.AUDIT_NAME || 'Integrations SOC Type 2 Test';
 }
 
 test.describe.serial('E2E Flow 2: Assign Control to User', () => {
-  test.use({ storageState: getAdminSessionPath() });
 
   let assignedControlId = '';
 
@@ -39,11 +58,23 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
     }
   });
 
+  /** Helper: login with the same admin user as Flow 1 */
+  async function loginAsAdmin(page) {
+    const admin = getSmokeAdmin();
+    await page.goto('/login');
+    await page.waitForLoadState('networkidle');
+    await page.locator('input[type="email"], input[name="email"]').first().fill(admin.email);
+    await page.locator('input[type="password"]').first().fill(admin.password);
+    await page.locator('button[type="submit"]').click();
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 60000 });
+    await page.waitForLoadState('networkidle');
+    await dismissWizard(page);
+  }
+
   test('TC-1: Navigate to Home page', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-1'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await loginAsAdmin(page);
 
     // Validate audit tiles are visible (confirms login is valid)
     const auditTiles = page.locator('a[href*="/audit/"]').first();
@@ -53,8 +84,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-2: Validate login — audit tiles visible on Home page', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-2'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await loginAsAdmin(page);
 
     const auditCount = await page.locator('a[href*="/audit/"]').count();
     expect(auditCount).toBeGreaterThan(0);
@@ -63,8 +93,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-3: Identify Search box at the top right', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-3'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await loginAsAdmin(page);
 
     const searchBox = page.locator('input[placeholder*="Search" i]').first();
     await expect(searchBox).toBeVisible({ timeout: 30000 });
@@ -73,8 +102,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-4: Search by audit name — filter matching audit', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-4'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await loginAsAdmin(page);
 
     const auditName = getAuditSearchName();
     const searchTerm = auditName.substring(0, 15);
@@ -92,8 +120,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-5: Navigate to Workspace → Controls → All Controls', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-5'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await loginAsAdmin(page);
 
     // Click first audit tile
     const auditLink = page.locator('a[href*="/audit/"]').first();
@@ -123,8 +150,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-6: Verify table columns — Control ID, Owner, Function, Status, Due Date, etc.', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-6'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await loginAsAdmin(page);
 
     // Navigate to audit → workspace → controls
     const auditLink = page.locator('a[href*="/audit/"]').first();
@@ -152,8 +178,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-7 to TC-12: Find unassigned control and assign to Matrix_Admin', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-7'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await loginAsAdmin(page);
 
     // Navigate to audit → workspace → controls
     const auditLink = page.locator('a[href*="/audit/"]').first();
@@ -223,8 +248,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-13: Navigate to Controls I Own — assigned control visible', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-13'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await loginAsAdmin(page);
 
     // Navigate to audit → workspace
     const auditLink = page.locator('a[href*="/audit/"]').first();
@@ -256,8 +280,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   test('TC-14: Select the control to open Control detail', async ({ page }) => {
     test.skip(!shouldRunE2E(FLOW, 'TC-14'), 'Excluded by Excel');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await loginAsAdmin(page);
 
     // Navigate to audit → workspace → Controls I Own
     const auditLink = page.locator('a[href*="/audit/"]').first();

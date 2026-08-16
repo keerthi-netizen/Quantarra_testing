@@ -1,6 +1,8 @@
 import { test, expect } from './base-fixture';
 import { dismissWizard } from '../../src/helpers/auth';
 import { getSmokeAdmin } from './test-data';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * TG-6: Audit Lifecycle — Create New Audit
@@ -188,5 +190,14 @@ test.describe('TG-6: Audit Lifecycle — Create New Audit', () => {
 
     const success = dialogClosed || navigatedToAudit || tileVisible;
     expect(success).toBeTruthy();
+
+    // Write audit name to shared state file for downstream E2E flows (Flow 2, etc.)
+    const stateDir = path.resolve(__dirname, '../../.auth');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, 'e2e-state.json'),
+      JSON.stringify({ auditName, createdAt: new Date().toISOString() }, null, 2),
+    );
+    console.log(`  ✅ Audit created: ${auditName} (saved to .auth/e2e-state.json)`);
   });
 });

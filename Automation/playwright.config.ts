@@ -69,7 +69,7 @@ export default defineConfig({
     {
       name: 'e2e',
       testDir: './tests/smoke-suite',
-      testMatch: ['tg6-audit-lifecycle.spec.ts', 'e2e-*.spec.ts'],
+      testMatch: 'e2e-*.spec.ts',
       dependencies: ['auth-setup'],
       fullyParallel: false,
       workers: 1,
