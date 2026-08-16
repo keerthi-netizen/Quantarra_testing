@@ -31,22 +31,34 @@ function getE2ESessionPath(): string {
   return path.resolve(__dirname, '../../.auth/e2e-admin-session.json');
 }
 
-// Audit to search for — from state file (Flow 1) > env var > default
+// Audit to search for:
+// - If state file exists AND is fresh (< 10 min) → Flow 1 just ran, use its audit name
+// - Otherwise (standalone execution) → use env var or default "Integrations SOC Type 2 Test"
 function getAuditSearchName(): string {
   const statePath = path.resolve(__dirname, '../../.auth/e2e-state.json');
   if (fs.existsSync(statePath)) {
-    try {
-      const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
-      if (state.auditName) {
-        console.log(`  📖 Using audit name from Flow 1: ${state.auditName}`);
-        return state.auditName;
+    const stat = fs.statSync(statePath);
+    const ageMs = Date.now() - stat.mtimeMs;
+    const MAX_AGE = 10 * 60 * 1000; // 10 minutes
+
+    if (ageMs < MAX_AGE) {
+      try {
+        const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+        if (state.auditName) {
+          console.log(`  📖 Using audit name from Flow 1: ${state.auditName}`);
+          return state.auditName;
+        }
+      } catch {
+        // ignore parse errors
       }
-    } catch {
-      // ignore parse errors
+    } else {
+      console.log('  ℹ️  State file is stale (> 10 min) — running standalone mode');
     }
   }
 
-  return process.env.AUDIT_NAME || 'Integrations SOC Type 2 Test';
+  const defaultName = process.env.AUDIT_NAME || 'Integrations SOC Type 2 Test';
+  console.log(`  📖 Using default audit name: ${defaultName}`);
+  return defaultName;
 }
 
 test.describe.serial('E2E Flow 2: Assign Control to User', () => {
