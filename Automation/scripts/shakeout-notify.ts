@@ -421,10 +421,85 @@ async function createJiraTicket(pocResults: EnvResults | null, prodResults: EnvR
   const auth = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
   const today = new Date().toISOString().slice(0, 10);
 
-  // Create one ticket per failed test case (with deduplication)
+  // Filter out infrastructure/setup failures — only create tickets for functional issues
+  const functionalFailures = failedDetails.filter((d) => {
+    const error = d.error.toLowerCase();
+    const testName = d.testName.toLowerCase();
+
+    // Infrastructure / setup failures — NOT real bugs
+    const isInfraFailure =
+      error.includes('enoent') ||
+      error.includes('no such file or directory') ||
+      error.includes('session') && error.includes('json') ||
+      error.includes('net::err_connection_refused') ||
+      error.includes('net::err_name_not_resolved') ||
+      error.includes('econnrefused') ||
+      error.includes('execution stopped') ||
+      error.includes('gate') ||
+      testName.includes('authenticate admin') ||
+      testName.includes('authenticate contributor');
+
+    if (isInfraFailure) {
+      console.log(`  ⏭️  Skipping Jira for infra/setup failure: "${d.testName}" — ${error.substring(0, 80)}`);
+      return false;
+    }
+
+    // Login/auth failures on the test itself — these ARE real (app might be down)
+    // But if ALL tests failed (mass failure), it's likely infra, not functional
+    return true;
+  });
+
+  // If > 80% of tests failed, it's likely an infra issue — create ONE summary ticket, not individual ones
+  const totalTests = (pocResults?.total ?? 0) + (prodResults?.total ?? 0);
+  const totalFailed = failedDetails.length;
+  const isMassFailure = totalTests > 0 && (totalFailed / totalTests) > 0.8;
+
+  if (isMassFailure) {
+    console.log(`  🚨 Mass failure detected (${totalFailed}/${totalTests} failed) — likely infra issue.`);
+    console.log('     Creating single infra ticket instead of individual tickets.');
+
+    const summary = `[Shakeout] ${failedDetails[0]?.env || 'ENV'} — Mass failure (${totalFailed}/${totalTests} tests) — possible infra issue`;
+    const description = {
+      type: 'doc',
+      version: 1,
+      content: [
+        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Mass Test Failure — Likely Infrastructure Issue' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: `${totalFailed} out of ${totalTests} tests failed on ${today}. This pattern indicates an infrastructure problem (app down, login broken, deploy in progress) rather than individual functional bugs.` }] },
+        { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Action' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Check app health, recent deploys, and login credentials before investigating individual tests.' }] },
+      ],
+    };
+    const body = JSON.stringify({
+      fields: {
+        project: { key: process.env.JIRA_PROJECT_KEY || 'PRJAT' },
+        summary: summary.substring(0, 200),
+        description,
+        issuetype: { name: 'Bug' },
+        priority: { name: 'Highest' },
+        labels: ['shakeout', 'auto-created', 'infra-issue'],
+      },
+    });
+
+    const existingKey = await findExistingTicketForTest(auth, 'Mass failure', failedDetails[0]?.env || 'ENV');
+    if (existingKey) {
+      await addRerunComment(auth, existingKey, { env: failedDetails[0]?.env || '', testName: 'Mass failure', issue: `${totalFailed}/${totalTests} tests still failing` }, today);
+      return existingKey;
+    }
+    const key = await postJiraTicket(auth, body);
+    return key;
+  }
+
+  if (functionalFailures.length === 0) {
+    console.log('  ℹ️  All failures are infrastructure-related — no Jira tickets created.');
+    return null;
+  }
+
+  console.log(`  📝 Creating Jira tickets for ${functionalFailures.length} functional failure(s) (skipped ${failedDetails.length - functionalFailures.length} infra failures)`);
+
+  // Create one ticket per functional failure (with deduplication)
   const createdKeys: string[] = [];
 
-  for (const detail of failedDetails) {
+  for (const detail of functionalFailures) {
     // Dedup: check if an open ticket already exists for this specific test
     const existingKey = await findExistingTicketForTest(auth, detail.testName, detail.env);
 
