@@ -86,6 +86,9 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
 
     await loginAsAdmin(page);
 
+    // Wait for at least one audit tile to appear
+    const auditTile = page.locator('a[href*="/audit/"]').first();
+    await expect(auditTile).toBeVisible({ timeout: 30000 });
     const auditCount = await page.locator('a[href*="/audit/"]').count();
     expect(auditCount).toBeGreaterThan(0);
   });
@@ -212,34 +215,29 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
     // TC-9: Click "+ Assign" — should show dropdown of users
     await assignBtn.click();
 
-    const dropdown = page.locator('[role="listbox"], [role="menu"], [data-radix-popper-content-wrapper], [class*="dropdown"]').first();
-    await expect(dropdown).toBeVisible({ timeout: 10000 });
+    // Wait for the search/dropdown popover to appear
+    const popover = page.locator('[data-radix-popper-content-wrapper], [role="listbox"], [role="dialog"], [class*="popover"]').last();
+    await expect(popover).toBeVisible({ timeout: 10000 });
 
     // TC-10: Search box visible in dropdown
-    const searchInput = dropdown.locator('input[placeholder*="search" i], input[type="text"]').first();
-    // Search might be in a popover, not necessarily inside the dropdown container
-    const searchVisible = await searchInput.isVisible({ timeout: 5000 }).catch(() => false);
-    if (!searchVisible) {
-      // Try page-level search input that appeared after clicking assign
-      const pageSearch = page.locator('input[placeholder*="search" i]').last();
-      await expect(pageSearch).toBeVisible({ timeout: 5000 });
-    }
+    const searchInput = popover.locator('input').first();
+    await expect(searchInput).toBeVisible({ timeout: 5000 });
 
     // TC-11: Type "Admin" to filter users
-    const activeSearch = searchVisible ? searchInput : page.locator('input[placeholder*="search" i]').last();
-    await activeSearch.fill('Admin');
-    await page.waitForLoadState('networkidle');
+    await searchInput.fill('Admin');
+    await page.waitForTimeout(1000); // Wait for filter to apply
 
-    // TC-12: Select "Matrix_Admin" from the dropdown
-    const adminOption = page.locator('[role="option"], [role="menuitem"], li, div').filter({ hasText: /matrix.?admin/i }).first();
+    // TC-12: Select "Matrix_Admin" from the dropdown (scoped to popover)
+    const adminOption = popover.getByText('Matrix_Admin').first();
     await expect(adminOption).toBeVisible({ timeout: 10000 });
     await adminOption.click();
 
     // Wait for assignment to persist
     await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     // Verify the "+ Assign" button is gone for that control (now shows the assigned user)
-    const assignedIndicator = page.getByText(/matrix.?admin/i).first();
+    const assignedIndicator = page.getByText(/Matrix_Admin|MA/).first();
     await expect(assignedIndicator).toBeVisible({ timeout: 10000 });
 
     console.log(`  ✅ Control ${assignedControlId} assigned to Matrix_Admin`);
