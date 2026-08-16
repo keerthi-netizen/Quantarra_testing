@@ -119,7 +119,6 @@ interface ScenarioSummary {
   total: number;
   passed: number;
   failed: number;
-  skipped: number;
 }
 
 function categorizeTests(results: EnvResults): ScenarioSummary[] {
@@ -137,8 +136,11 @@ function categorizeTests(results: EnvResults): ScenarioSummary[] {
   const summaries: ScenarioSummary[] = [];
   const categorized = new Set<number>();
 
+  // Only consider non-skipped tests
+  const activeTests = results.tests.filter((t) => t.status !== 'skipped');
+
   for (const cat of categories) {
-    const matching = results.tests.filter((t, i) => {
+    const matching = activeTests.filter((t, i) => {
       if (categorized.has(i)) {
         return false;
       }
@@ -157,20 +159,18 @@ function categorizeTests(results: EnvResults): ScenarioSummary[] {
         total: matching.length,
         passed: matching.filter((t) => t.status === 'passed').length,
         failed: matching.filter((t) => t.status === 'failed' || t.status === 'timedOut').length,
-        skipped: matching.filter((t) => t.status === 'skipped').length,
       });
     }
   }
 
   // Catch any uncategorized tests
-  const uncategorized = results.tests.filter((_, i) => !categorized.has(i));
+  const uncategorized = activeTests.filter((_, i) => !categorized.has(i));
   if (uncategorized.length > 0) {
     summaries.push({
       name: 'Other',
       total: uncategorized.length,
       passed: uncategorized.filter((t) => t.status === 'passed').length,
       failed: uncategorized.filter((t) => t.status === 'failed' || t.status === 'timedOut').length,
-      skipped: uncategorized.filter((t) => t.status === 'skipped').length,
     });
   }
 
@@ -200,19 +200,18 @@ function generateEmailHtml(pocResults: EnvResults | null, prodResults: EnvResult
             <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;">${s.total}</td>
             <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#2e7d32;font-weight:600;">${s.passed}</td>
             <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:${s.failed > 0 ? '#c62828' : '#666'};font-weight:${s.failed > 0 ? '600' : '400'};">${s.failed}</td>
-            <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#666;">${s.skipped}</td>
           </tr>`;
       })
       .join('');
 
-    // Totals row
+    // Totals row (exclude skipped from totals)
+    const activeTotal = results.total - results.skipped;
     const totalRow = `
       <tr style="background:#f5f5f5;font-weight:700;">
         <td style="padding:8px 12px;border:1px solid #ddd;">TOTAL</td>
-        <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;">${results.total}</td>
+        <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;">${activeTotal}</td>
         <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#2e7d32;">${results.passed}</td>
         <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#c62828;">${results.failed}</td>
-        <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;color:#666;">${results.skipped}</td>
       </tr>`;
 
     return `
@@ -224,7 +223,6 @@ function generateEmailHtml(pocResults: EnvResults | null, prodResults: EnvResult
             <th style="padding:8px 12px;border:1px solid #ddd;text-align:center;">Total</th>
             <th style="padding:8px 12px;border:1px solid #ddd;text-align:center;">Passed</th>
             <th style="padding:8px 12px;border:1px solid #ddd;text-align:center;">Failed</th>
-            <th style="padding:8px 12px;border:1px solid #ddd;text-align:center;">Skipped</th>
           </tr>
         </thead>
         <tbody>
@@ -286,6 +284,11 @@ async function generateExcelReport(pocResults: EnvResults | null, prodResults: E
 
     let sno = 1;
     for (const test of results.tests) {
+      // Skip tests that were skipped (only include passed/failed/timedOut)
+      if (test.status === 'skipped') {
+        continue;
+      }
+
       // Extract scenario from test title (before " > ")
       const parts = test.title.split(' > ');
       const scenario = parts[0] || '';
