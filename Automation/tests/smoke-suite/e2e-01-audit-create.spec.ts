@@ -62,6 +62,11 @@ test.describe('TG-6: Audit Lifecycle — Create New Audit', () => {
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
     await dismissWizard(page);
 
+    // Save session for reuse by downstream E2E flows (Flow 2, etc.)
+    const sessionDir = path.resolve(__dirname, '../../.auth');
+    fs.mkdirSync(sessionDir, { recursive: true });
+    await page.context().storageState({ path: path.join(sessionDir, 'e2e-admin-session.json') });
+
     // === Step 1: Click "Create new" button ===
     await page.goto('/');
     await page.waitForLoadState('networkidle');
