@@ -55,7 +55,7 @@ export default defineConfig({
     {
       name: 'regression',
       testDir: './tests/daily-shakeout',
-      testIgnore: ['00-auth-setup.spec.ts', '09-e2e-*.spec.ts', '10-e2e-*.spec.ts'],
+      testIgnore: '00-auth-setup.spec.ts',
       dependencies: ['auth-setup'],
       fullyParallel: false,
       workers: 1,
@@ -68,8 +68,8 @@ export default defineConfig({
     // --- E2E Flows (full lifecycle tests — Excel "E2E Flow" sheet) ---
     {
       name: 'e2e',
-      testDir: './tests/daily-shakeout',
-      testMatch: '09-e2e-*.spec.ts',
+      testDir: './tests/smoke-suite',
+      testMatch: 'tg6-audit-lifecycle.spec.ts',
       dependencies: ['auth-setup'],
       fullyParallel: false,
       workers: 1,
