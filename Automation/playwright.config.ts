@@ -55,13 +55,29 @@ export default defineConfig({
     {
       name: 'regression',
       testDir: './tests/daily-shakeout',
-      testIgnore: '00-auth-setup.spec.ts',
+      testIgnore: ['00-auth-setup.spec.ts', '09-e2e-*.spec.ts', '10-e2e-*.spec.ts'],
       dependencies: ['auth-setup'],
       fullyParallel: false,
       workers: 1,
       use: {
         ...devices['Desktop Chrome'],
         baseURL: envConfig.baseUrl,
+      },
+    },
+
+    // --- E2E Flows (full lifecycle tests — Excel "E2E Flow" sheet) ---
+    {
+      name: 'e2e',
+      testDir: './tests/daily-shakeout',
+      testMatch: '09-e2e-*.spec.ts',
+      dependencies: ['auth-setup'],
+      fullyParallel: false,
+      workers: 1,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: envConfig.baseUrl,
+        navigationTimeout: 30000,
+        actionTimeout: 20000,
       },
     },
 

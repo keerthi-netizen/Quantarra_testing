@@ -1,7 +1,7 @@
 /**
  * Excel-Driven Test Filter
  *
- * Reads "tests/New_Testcase.xlsx" → "Step case and steps" sheet
+ * Reads "tests/New_Testcase.xlsx" → "Regression" sheet
  * and checks either:
  *   - "Run Shakeout in Prod and POC" column (for daily shakeout)
  *   - "Run for Full regression" column (for regression runs)
@@ -64,10 +64,10 @@ function loadExcelData(): TestCaseEntry[] {
     const XLSX = require('xlsx');
     const excelPath = path.resolve(__dirname, '..', 'New_Testcase.xlsx');
     const wb = XLSX.readFile(excelPath);
-    const ws = wb.Sheets['Step case and steps'];
+    const ws = wb.Sheets['Regression'];
 
     if (!ws) {
-      console.warn('[excel-filter] Sheet "Step case and steps" not found — all tests will run.');
+      console.warn('[excel-filter] Sheet "Regression" not found — all tests will run.');
       _cache = [];
       return _cache;
     }
@@ -198,4 +198,123 @@ export function printFilterSummary(): void {
       console.log(`    ⏭️ ${e.tg} ${e.scenario} ${e.tc}: ${e.desc.substring(0, 60)}`);
     }
   }
+}
+
+
+
+// ===== E2E FLOW SUPPORT =====
+
+interface E2ETestCaseEntry {
+  flow: string;       // "E2E Flow 1", "E2E Flow 2"
+  tc: string;         // "TC-1", "TC-2"
+  tg: string;         // "TG-1", "TG-2"
+  runE2E: boolean;
+  desc: string;
+}
+
+let _e2eCache: E2ETestCaseEntry[] | null = null;
+
+/**
+ * Loads and caches the E2E Flow sheet data.
+ */
+function loadE2EData(): E2ETestCaseEntry[] {
+  if (_e2eCache) {
+    return _e2eCache;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const XLSX = require('xlsx');
+    const excelPath = path.resolve(__dirname, '..', 'New_Testcase.xlsx');
+    const wb = XLSX.readFile(excelPath);
+    const ws = wb.Sheets['E2E Flow'];
+
+    if (!ws) {
+      console.warn('[excel-filter] Sheet "E2E Flow" not found — all E2E tests will run.');
+      _e2eCache = [];
+      return _e2eCache;
+    }
+
+    const data = XLSX.utils.sheet_to_json(ws) as Record<string, unknown>[];
+    let currentFlow = '';
+    const entries: E2ETestCaseEntry[] = [];
+
+    for (const row of data) {
+      const tc = String(row['Test case'] || '');
+      const desc = String(row['Test scenario/Test case/Test step'] || '');
+      const tg = String(row['Test group'] || '');
+      const runVal = String(row['Run for E2E Flow'] || '').trim().toLowerCase();
+
+      if (tc.startsWith('E2E Flow')) {
+        currentFlow = tc;
+      } else if (tc.startsWith('TC-') && tg) {
+        entries.push({
+          flow: currentFlow,
+          tc,
+          tg,
+          runE2E: runVal === 'yes',
+          desc: desc.substring(0, 120),
+        });
+      }
+    }
+
+    _e2eCache = entries;
+    return _e2eCache;
+  } catch (err) {
+    console.warn('[excel-filter] Could not read E2E Flow sheet — all tests will run.', err);
+    _e2eCache = [];
+    return _e2eCache;
+  }
+}
+
+/**
+ * Check if a specific E2E test case should run.
+ *
+ * @param flow - E2E Flow name (e.g., "E2E Flow 1")
+ * @param tc - Test Case ID (e.g., "TC-1")
+ * @returns true if test should run
+ */
+export function shouldRunE2E(flow: string, tc: string): boolean {
+  const entries = loadE2EData();
+
+  if (entries.length === 0) {
+    return true;
+  }
+
+  const match = entries.find((e) => e.flow === flow && e.tc === tc);
+
+  if (!match) {
+    return true;
+  }
+
+  return match.runE2E;
+}
+
+/**
+ * Get the test step description from the E2E sheet for a given flow + TC.
+ * Useful for dynamic test names.
+ */
+export function getE2EStepDescription(flow: string, tc: string): string {
+  const entries = loadE2EData();
+  const match = entries.find((e) => e.flow === flow && e.tc === tc);
+  return match?.desc || '';
+}
+
+/**
+ * Print E2E flow summary.
+ */
+export function printE2EFilterSummary(): void {
+  const entries = loadE2EData();
+
+  if (entries.length === 0) {
+    console.log('[excel-filter] No E2E Flow data loaded — running all tests.');
+    return;
+  }
+
+  const included = entries.filter((e) => e.runE2E);
+  const excluded = entries.filter((e) => !e.runE2E);
+
+  console.log(`[excel-filter] E2E Flow | Column: "Run for E2E Flow"`);
+  console.log(`  Loaded ${entries.length} test cases from E2E Flow sheet.`);
+  console.log(`  ✅ Run: ${included.length} | ⏭️ Skip: ${excluded.length}`);
 }
