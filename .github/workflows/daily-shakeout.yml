@@ -162,6 +162,7 @@ jobs:
         run: npm ci
 
       - name: Download POC results
+        if: ${{ needs.shakeout-poc.result == 'success' || needs.shakeout-poc.result == 'failure' }}
         uses: actions/download-artifact@v4
         with:
           name: shakeout-poc-results
@@ -169,6 +170,7 @@ jobs:
         continue-on-error: true
 
       - name: Download Prod results
+        if: ${{ needs.shakeout-prod.result == 'success' || needs.shakeout-prod.result == 'failure' }}
         uses: actions/download-artifact@v4
         with:
           name: shakeout-prod-results
