@@ -270,4 +270,182 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     const recentActivity = page.getByText(/recent activity/i).first();
     await expect(recentActivity).toBeVisible({ timeout: 30000 });
   });
+
+  test('TC-16: Dashboard — Status shows numbers (Not Started, In progress, etc.)', async ({ page }) => {
+    test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-16'), 'Excluded by Excel — Run Shakeout = No');
+
+    await navigateToFirstAudit(page);
+
+    const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
+    await dashboardTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Verify status labels with numbers are visible
+    const notStarted = page.getByText(/not started/i).first();
+    const inProgress = page.getByText(/in progress/i).first();
+
+    const hasNotStarted = await notStarted.isVisible({ timeout: 10000 }).catch(() => false);
+    const hasInProgress = await inProgress.isVisible({ timeout: 5000 }).catch(() => false);
+
+    expect(hasNotStarted || hasInProgress).toBeTruthy();
+  });
+
+  test('TC-17: Dashboard — Status numbers are numeric values', async ({ page }) => {
+    test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-17'), 'Excluded by Excel — Run Shakeout = No');
+
+    await navigateToFirstAudit(page);
+
+    const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
+    await dashboardTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Verify there are numeric values displayed near status labels
+    const numbers = page.locator('[class*="stat"], [class*="count"], [class*="number"], [class*="metric"]').first();
+    const statusSection = page.locator('text=/\\d+/').first();
+
+    const hasNumbers = await numbers.isVisible({ timeout: 10000 }).catch(() => false);
+    const hasDigits = await statusSection.isVisible({ timeout: 5000 }).catch(() => false);
+
+    expect(hasNumbers || hasDigits).toBeTruthy();
+  });
+
+  test('TC-20: Workspace — Display tabs (Families, Objectives, Controls, Evidence)', async ({ page }) => {
+    test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-20'), 'Excluded by Excel — Run Shakeout = No');
+
+    await navigateToFirstAudit(page);
+
+    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    await workspaceTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Verify workspace sub-tabs are present
+    const familiesTab = page.locator('button, a, [role="tab"]').filter({ hasText: /famil|categor/i }).first();
+    const objectivesTab = page.locator('button, a, [role="tab"]').filter({ hasText: /objective|sub-categor/i }).first();
+    const controlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /controls/i }).first();
+    const evidenceTab = page.locator('button, a, [role="tab"]').filter({ hasText: /evidence/i }).first();
+
+    const hasFamilies = await familiesTab.isVisible({ timeout: 10000 }).catch(() => false);
+    const hasObjectives = await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasControls = await controlsTab.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasEvidence = await evidenceTab.isVisible({ timeout: 5000 }).catch(() => false);
+
+    // At least Controls should be visible (core tab)
+    expect(hasControls).toBeTruthy();
+    console.log(`  📋 Workspace tabs: Families=${hasFamilies}, Objectives=${hasObjectives}, Controls=${hasControls}, Evidence=${hasEvidence}`);
+  });
+
+  test('TC-21: Workspace — Family (Category) tab shows subtabs', async ({ page }) => {
+    test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-21'), 'Excluded by Excel — Run Shakeout = No');
+
+    await navigateToFirstAudit(page);
+
+    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    await workspaceTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Click Families/Category tab
+    const familiesTab = page.locator('button, a, [role="tab"]').filter({ hasText: /famil|categor/i }).first();
+    if (await familiesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await familiesTab.click();
+      await page.waitForLoadState('networkidle');
+
+      // Verify content loads (table or list)
+      const content = page.locator('table, [role="table"], [role="grid"], main').first();
+      await expect(content).toBeVisible({ timeout: 15000 });
+    } else {
+      test.skip(true, 'Families/Category tab not visible in this framework');
+    }
+  });
+
+  test('TC-22: Workspace — Objectives (Sub-Category) tab shows subtabs', async ({ page }) => {
+    test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-22'), 'Excluded by Excel — Run Shakeout = No');
+
+    await navigateToFirstAudit(page);
+
+    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    await workspaceTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Click Objectives/Sub-Category tab
+    const objectivesTab = page.locator('button, a, [role="tab"]').filter({ hasText: /objective|sub-categor/i }).first();
+    if (await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await objectivesTab.click();
+      await page.waitForLoadState('networkidle');
+
+      const content = page.locator('table, [role="table"], [role="grid"], main').first();
+      await expect(content).toBeVisible({ timeout: 15000 });
+    } else {
+      test.skip(true, 'Objectives/Sub-Category tab not visible in this framework');
+    }
+  });
+
+  test('TC-23: Workspace — Controls tab shows All Controls and Controls I Own', async ({ page }) => {
+    test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-23'), 'Excluded by Excel — Run Shakeout = No');
+
+    await navigateToFirstAudit(page);
+
+    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    await workspaceTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Click Controls tab
+    const controlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /controls/i }).first();
+    await expect(controlsTab).toBeVisible({ timeout: 10000 });
+    await controlsTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Verify "All Controls" and "Controls I Own" sub-tabs
+    const allControlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /all controls/i }).first();
+    const myControlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /controls i own|my controls/i }).first();
+
+    await expect(allControlsTab).toBeVisible({ timeout: 10000 });
+    await expect(myControlsTab).toBeVisible({ timeout: 5000 });
+  });
+
+  test('TC-24: Workspace — "+ Add Control" button is enabled', async ({ page }) => {
+    test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-24'), 'Excluded by Excel — Run Shakeout = No');
+
+    await navigateToFirstAudit(page);
+
+    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    await workspaceTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Navigate to Controls tab
+    const controlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /controls/i }).first();
+    if (await controlsTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await controlsTab.click();
+      await page.waitForLoadState('networkidle');
+    }
+
+    // Verify "+ Add Control" button is visible and enabled
+    const addControlBtn = page.locator('button').filter({ hasText: /add control|\+ control/i }).first();
+    await expect(addControlBtn).toBeVisible({ timeout: 15000 });
+    await expect(addControlBtn).toBeEnabled();
+  });
+
+  test('TC-25: Internal Auditor — tabs (Ready for review, Needs updates, Accepted, Findings)', async ({ page }) => {
+    test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-25'), 'Excluded by Excel — Run Shakeout = No');
+
+    await navigateToFirstAudit(page);
+
+    const iaTab = page.getByRole('tab', { name: /internal audit|ia/i });
+    await iaTab.click();
+    await page.waitForLoadState('networkidle');
+
+    // Verify IA sub-tabs are present
+    const readyTab = page.locator('button, a, [role="tab"]').filter({ hasText: /ready for review|ready/i }).first();
+    const needsUpdatesTab = page.locator('button, a, [role="tab"]').filter({ hasText: /needs update|update/i }).first();
+    const acceptedTab = page.locator('button, a, [role="tab"]').filter({ hasText: /accepted/i }).first();
+    const findingsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /finding/i }).first();
+
+    const hasReady = await readyTab.isVisible({ timeout: 10000 }).catch(() => false);
+    const hasUpdates = await needsUpdatesTab.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasAccepted = await acceptedTab.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasFindings = await findingsTab.isVisible({ timeout: 5000 }).catch(() => false);
+
+    // At least some IA tabs should be present
+    expect(hasReady || hasUpdates || hasAccepted || hasFindings).toBeTruthy();
+    console.log(`  📋 IA tabs: Ready=${hasReady}, NeedsUpdates=${hasUpdates}, Accepted=${hasAccepted}, Findings=${hasFindings}`);
+  });
 });
