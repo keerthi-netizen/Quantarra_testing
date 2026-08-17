@@ -144,7 +144,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     await navigateToFirstAudit(page);
 
-    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
@@ -314,15 +314,15 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     await navigateToFirstAudit(page);
 
-    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
     // Verify workspace sub-tabs are present
-    const familiesTab = page.locator('button, a, [role="tab"]').filter({ hasText: /famil|categor/i }).first();
-    const objectivesTab = page.locator('button, a, [role="tab"]').filter({ hasText: /objective|sub-categor/i }).first();
-    const controlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /controls/i }).first();
-    const evidenceTab = page.locator('button, a, [role="tab"]').filter({ hasText: /evidence/i }).first();
+    const familiesTab = page.getByText(/Families\s*\(\d+\)|^Families$/i).first();
+    const objectivesTab = page.getByText(/Objectives\s*\(\d+\)|^Objectives$/i).first();
+    const controlsTab = page.getByText(/Controls\s*\(\d+\)|^Controls$/i).first();
+    const evidenceTab = page.getByText(/Evidence\s*\(\d+\)|^Evidence$/i).first();
 
     const hasFamilies = await familiesTab.isVisible({ timeout: 10000 }).catch(() => false);
     const hasObjectives = await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false);
@@ -339,12 +339,12 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     await navigateToFirstAudit(page);
 
-    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
     // Click Families/Category tab
-    const familiesTab = page.locator('button, a, [role="tab"]').filter({ hasText: /famil|categor/i }).first();
+    const familiesTab = page.getByText(/Families\s*\(\d+\)|^Families$/i).first();
     if (await familiesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await familiesTab.click();
       await page.waitForLoadState('networkidle');
@@ -362,12 +362,12 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     await navigateToFirstAudit(page);
 
-    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
     // Click Objectives/Sub-Category tab
-    const objectivesTab = page.locator('button, a, [role="tab"]').filter({ hasText: /objective|sub-categor/i }).first();
+    const objectivesTab = page.getByText(/Objectives\s*\(\d+\)|^Objectives$/i).first();
     if (await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await objectivesTab.click();
       await page.waitForLoadState('networkidle');
@@ -384,19 +384,21 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     await navigateToFirstAudit(page);
 
-    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
-    // Click Controls tab
-    const controlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /controls/i }).first();
-    await expect(controlsTab).toBeVisible({ timeout: 10000 });
-    await controlsTab.click();
+    // Click Controls sub-tab (may be rendered as button, link, tab, or styled div/span)
+    const controlsTab = page.locator('button, a, [role="tab"], [role="tablist"] >> *').filter({ hasText: /^Controls\s*\(\d+\)$|^Controls$/i }).first();
+    const controlsTabFallback = page.getByText(/Controls\s*\(\d+\)/i).first();
+    const target = await controlsTab.isVisible({ timeout: 5000 }).catch(() => false) ? controlsTab : controlsTabFallback;
+    await expect(target).toBeVisible({ timeout: 10000 });
+    await target.click();
     await page.waitForLoadState('networkidle');
 
-    // Verify "All Controls" and "Controls I Own" sub-tabs
-    const allControlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /all controls/i }).first();
-    const myControlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /controls i own|my controls/i }).first();
+    // Verify "All Controls" and "Controls I Own" sub-tabs (pill/chip style)
+    const allControlsTab = page.getByText(/All controls\s*\(\d+\)|All controls/i).first();
+    const myControlsTab = page.getByText(/Controls I own\s*\(\d+\)|Controls I own|My controls/i).first();
 
     await expect(allControlsTab).toBeVisible({ timeout: 10000 });
     await expect(myControlsTab).toBeVisible({ timeout: 5000 });
@@ -407,12 +409,12 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     await navigateToFirstAudit(page);
 
-    const workspaceTab = page.getByRole('tab', { name: /workspace/i });
+    const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
     // Navigate to Controls tab
-    const controlsTab = page.locator('button, a, [role="tab"]').filter({ hasText: /controls/i }).first();
+    const controlsTab = page.getByText(/Controls\s*\(\d+\)|^Controls$/i).first();
     if (await controlsTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await controlsTab.click();
       await page.waitForLoadState('networkidle');
