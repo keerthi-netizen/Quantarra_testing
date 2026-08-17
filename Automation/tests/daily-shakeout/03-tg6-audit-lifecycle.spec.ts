@@ -421,7 +421,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     }
 
     // Verify "+ Add Control" button is visible and enabled
-    const addControlBtn = page.locator('button').filter({ hasText: /add control|\+ control/i }).first();
+    const addControlBtn = page.locator('#tabpanel-ws button:has-text("Add control"), #tabpanel-ws button:has-text("+ Add control")').first();
     await expect(addControlBtn).toBeVisible({ timeout: 15000 });
     await expect(addControlBtn).toBeEnabled();
   });
