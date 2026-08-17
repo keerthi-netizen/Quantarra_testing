@@ -1,0 +1,137 @@
+name: E2E Flows — End-to-End Lifecycle Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - poc
+          - prod
+        default: prod
+      test_filter:
+        description: 'Filter specific E2E test (leave empty for all)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  # POC Environment
+  POC_BASE_URL: https://poc.quantarra.com
+  POC_MC_URL: https://poc.quantarra.com:4002
+  POC_AUDIT_URL: https://poc.quantarra.com:4003
+  POC_API_URL: https://poc.quantarra.com/api/v1
+  POC_ADMIN_EMAIL: ${{ secrets.POC_ADMIN_EMAIL }}
+  POC_ADMIN_PASSWORD: ${{ secrets.POC_ADMIN_PASSWORD }}
+
+  # Prod Environment
+  PROD_BASE_URL: https://app.quantarra.com
+  PROD_MC_URL: https://mc.quantarra.com
+  PROD_AUDIT_URL: https://audit.quantarra.com
+  PROD_API_URL: https://app.quantarra.com/api/v1
+  PROD_ADMIN_EMAIL: ${{ secrets.PROD_ADMIN_EMAIL }}
+  PROD_ADMIN_PASSWORD: ${{ secrets.PROD_ADMIN_PASSWORD }}
+
+  # Shared credentials
+  CONTRIBUTOR_EMAIL: ${{ secrets.PROD_CONTRIBUTOR_EMAIL }}
+  CONTRIBUTOR_PASSWORD: ${{ secrets.PROD_CONTRIBUTOR_PASSWORD }}
+
+  # Jira (for auto-ticket creation on failure)
+  JIRA_BASE_URL: https://quantarra.atlassian.net
+  JIRA_PROJECT_KEY: PRJAT
+  JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+  JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+jobs:
+  e2e-tests:
+    name: E2E Flows — ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: Automation/package-lock.json
+
+      - name: Install dependencies
+        working-directory: Automation
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: Automation
+        run: npx playwright install chromium --with-deps
+
+      - name: Run Auth Setup
+        working-directory: Automation
+        env:
+          ENV: ${{ github.event.inputs.environment }}
+        run: npx playwright test --project=auth-setup --reporter=list
+
+      - name: Run E2E Flow Tests
+        working-directory: Automation
+        env:
+          ENV: ${{ github.event.inputs.environment }}
+          PLAYWRIGHT_JSON_OUTPUT_FILE: reports/results.json
+        run: |
+          FILTER="${{ github.event.inputs.test_filter }}"
+          
+          echo "🎯 Environment: ${{ github.event.inputs.environment }}"
+          echo "🎯 Filter: ${FILTER:-All E2E tests}"
+          echo ""
+
+          if [ -n "$FILTER" ]; then
+            npx playwright test --project=e2e --grep "$FILTER" --reporter=list,json,html
+          else
+            npx playwright test --project=e2e --reporter=list,json,html
+          fi
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-${{ github.event.inputs.environment }}-${{ github.run_number }}
+          path: |
+            Automation/reports/html/
+            Automation/reports/results.json
+          retention-days: 30
+
+      - name: Upload failure screenshots & traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-${{ github.run_number }}
+          path: |
+            Automation/reports/artifacts/**/*.png
+            Automation/reports/artifacts/**/*.zip
+          retention-days: 14
+
+      - name: Test Summary
+        if: always()
+        working-directory: Automation
+        run: |
+          echo "## E2E Flow Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | **${{ github.event.inputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Filter | ${{ github.event.inputs.test_filter || 'All' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f reports/results.json ]; then
+            PASSED=$(cat reports/results.json | jq '.stats.expected // 0')
+            FAILED=$(cat reports/results.json | jq '.stats.unexpected // 0')
+            SKIPPED=$(cat reports/results.json | jq '.stats.skipped // 0')
+            DURATION=$(cat reports/results.json | jq '(.stats.duration // 0) / 1000 | floor')
+            echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏱️ Duration | ${DURATION}s |" >> $GITHUB_STEP_SUMMARY
+          fi
