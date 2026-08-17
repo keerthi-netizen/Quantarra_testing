@@ -390,18 +390,32 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(2000);
 
-    // Click Controls sub-tab (scoped to workspace panel to avoid matching filter pills)
-    const wsPanel = page.locator('#tabpanel-ws');
-    await expect(wsPanel).toBeVisible({ timeout: 10000 });
-    const controlsTab = wsPanel.locator('text=/Controls/i').first();
-    await expect(controlsTab).toBeVisible({ timeout: 10000 });
-    await controlsTab.click();
-    await page.waitForLoadState('networkidle');
+    // The Controls sub-tab may already be active (default view).
+    // Verify we can see the filter pills: "All controls" and "Controls I own"
+    // These appear below the sub-tabs when the Controls view is active.
+    const allControlsTab = page.getByRole('tab', { name: /all controls/i }).or(
+      page.locator('[data-state="active"], [aria-selected="true"]').filter({ hasText: /all controls/i })
+    ).or(page.locator('button, a, [role="tab"]').filter({ hasText: /all controls/i })).first();
 
-    // Verify "All controls" and "Controls I own" filter pills (visible anywhere on page)
-    const allControlsTab = page.locator('text=/All controls/i').first();
-    const myControlsTab = page.locator('text=/Controls I own/i').first();
+    const myControlsTab = page.getByRole('tab', { name: /controls i own/i }).or(
+      page.locator('button, a, [role="tab"]').filter({ hasText: /controls i own/i })
+    ).first();
+
+    // If "All controls" isn't visible yet, we may need to click the Controls sub-tab first
+    let allVisible = await allControlsTab.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!allVisible) {
+      // Click the Controls tab in the sub-navigation (Families/Objectives/Controls/Evidence row)
+      // Use aria role or specific tab-like selectors to avoid clicking into control rows
+      const controlsNavTab = page.getByRole('tab', { name: /^controls/i }).first();
+      const ctVisible = await controlsNavTab.isVisible({ timeout: 3000 }).catch(() => false);
+      if (ctVisible) {
+        await controlsNavTab.click();
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(2000);
+      }
+    }
 
     await expect(allControlsTab).toBeVisible({ timeout: 10000 });
     await expect(myControlsTab).toBeVisible({ timeout: 5000 });
@@ -415,20 +429,26 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(2000);
 
-    // Navigate to Controls tab (scoped to workspace panel)
-    const wsPanel = page.locator('#tabpanel-ws');
-    await expect(wsPanel).toBeVisible({ timeout: 10000 });
-    const controlsTab = wsPanel.locator('text=/Controls/i').first();
-    if (await controlsTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await controlsTab.click();
-      await page.waitForLoadState('networkidle');
+    // Controls view may be active by default. If not, click the Controls role tab.
+    const addControlBtn = page.locator('button', { hasText: /add control/i }).first();
+    let btnVisible = await addControlBtn.isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (!btnVisible) {
+      // Try clicking the Controls tab via role (avoid matching control row text)
+      const controlsNavTab = page.getByRole('tab', { name: /^controls/i }).first();
+      if (await controlsNavTab.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await controlsNavTab.click();
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(2000);
+      }
     }
 
-    // Verify "+ Add Control" button is visible and enabled (search full page)
-    const addControlBtn = page.locator('button', { hasText: /add control/i }).first();
+    // Verify "+ Add Control" button is visible and enabled
     await expect(addControlBtn).toBeVisible({ timeout: 15000 });
     await expect(addControlBtn).toBeEnabled();
+  });
   });
 
   test('TC-25: Internal Auditor — tabs (Ready for review, Needs updates, Accepted, Findings)', async ({ page }) => {
