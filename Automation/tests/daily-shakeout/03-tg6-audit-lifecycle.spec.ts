@@ -399,9 +399,9 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await controlsTab.click();
     await page.waitForLoadState('networkidle');
 
-    // Verify "All controls" and "Controls I own" filter pills
-    const allControlsTab = wsPanel.locator('text=/All controls/i').first();
-    const myControlsTab = wsPanel.locator('text=/Controls I own/i').first();
+    // Verify "All controls" and "Controls I own" filter pills (visible anywhere on page)
+    const allControlsTab = page.locator('text=/All controls/i').first();
+    const myControlsTab = page.locator('text=/Controls I own/i').first();
 
     await expect(allControlsTab).toBeVisible({ timeout: 10000 });
     await expect(myControlsTab).toBeVisible({ timeout: 5000 });
@@ -425,8 +425,8 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
       await page.waitForLoadState('networkidle');
     }
 
-    // Verify "+ Add Control" button is visible and enabled
-    const addControlBtn = wsPanel.locator('button', { hasText: /add control/i }).first();
+    // Verify "+ Add Control" button is visible and enabled (search full page)
+    const addControlBtn = page.locator('button', { hasText: /add control/i }).first();
     await expect(addControlBtn).toBeVisible({ timeout: 15000 });
     await expect(addControlBtn).toBeEnabled();
   });
