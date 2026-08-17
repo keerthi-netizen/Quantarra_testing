@@ -449,7 +449,6 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await expect(addControlBtn).toBeVisible({ timeout: 15000 });
     await expect(addControlBtn).toBeEnabled();
   });
-  });
 
   test('TC-25: Internal Auditor — tabs (Ready for review, Needs updates, Accepted, Findings)', async ({ page }) => {
     test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-25'), 'Excluded by Excel — Run Shakeout = No');
