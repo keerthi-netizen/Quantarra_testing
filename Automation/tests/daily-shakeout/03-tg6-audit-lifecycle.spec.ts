@@ -202,7 +202,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await dashboardTab.click();
     await page.waitForLoadState('networkidle');
 
-    const acceptedTile = page.getByText(/controls accepted/i).first();
+    const acceptedTile = page.getByText(/accepted|controls accepted/i).first();
     await expect(acceptedTile).toBeVisible({ timeout: 30000 });
   });
 
@@ -318,11 +318,14 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
-    // Verify workspace sub-tabs are present
-    const familiesTab = page.getByText(/^Families(\s*\(\d+\))?$/i).first();
-    const objectivesTab = page.getByText(/^Objectives(\s*\(\d+\))?$/i).first();
-    const controlsTab = page.getByText(/^Controls(\s*\(\d+\))?$/i).first();
-    const evidenceTab = page.getByText(/^Evidence(\s*\(\d+\))?$/i).first();
+    // Verify workspace sub-tabs are present (scoped to workspace panel)
+    const wsPanel = page.locator('#tabpanel-ws');
+    await expect(wsPanel).toBeVisible({ timeout: 10000 });
+
+    const familiesTab = wsPanel.locator('text=/Families/i').first();
+    const objectivesTab = wsPanel.locator('text=/Objectives/i').first();
+    const controlsTab = wsPanel.locator('text=/Controls/i').first();
+    const evidenceTab = wsPanel.locator('text=/Evidence/i').first();
 
     const hasFamilies = await familiesTab.isVisible({ timeout: 10000 }).catch(() => false);
     const hasObjectives = await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false);
@@ -344,7 +347,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await page.waitForLoadState('networkidle');
 
     // Click Families/Category tab
-    const familiesTab = page.getByText(/^Families(\s*\(\d+\))?$/i).first();
+    const familiesTab = page.locator('#tabpanel-ws').locator('text=/Families/i').first();
     if (await familiesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await familiesTab.click();
       await page.waitForLoadState('networkidle');
@@ -367,7 +370,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await page.waitForLoadState('networkidle');
 
     // Click Objectives/Sub-Category tab
-    const objectivesTab = page.getByText(/^Objectives(\s*\(\d+\))?$/i).first();
+    const objectivesTab = page.locator('#tabpanel-ws').locator('text=/Objectives/i').first();
     if (await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await objectivesTab.click();
       await page.waitForLoadState('networkidle');
@@ -388,16 +391,17 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
-    // Click Controls sub-tab (exact match to avoid hitting "All controls" pill)
-    // Matches "Controls (176)" or "Controls" but NOT "All controls (176)"
-    const controlsTab = page.getByText(/^Controls(\s*\(\d+\))?$/i).first();
+    // Click Controls sub-tab (scoped to workspace panel to avoid matching filter pills)
+    const wsPanel = page.locator('#tabpanel-ws');
+    await expect(wsPanel).toBeVisible({ timeout: 10000 });
+    const controlsTab = wsPanel.locator('text=/Controls/i').first();
     await expect(controlsTab).toBeVisible({ timeout: 10000 });
     await controlsTab.click();
     await page.waitForLoadState('networkidle');
 
     // Verify "All controls" and "Controls I own" filter pills
-    const allControlsTab = page.getByText(/^All controls(\s*\(\d+\))?$/i).first();
-    const myControlsTab = page.getByText(/^Controls I own(\s*\(\d+\))?$/i).first();
+    const allControlsTab = wsPanel.locator('text=/All controls/i').first();
+    const myControlsTab = wsPanel.locator('text=/Controls I own/i').first();
 
     await expect(allControlsTab).toBeVisible({ timeout: 10000 });
     await expect(myControlsTab).toBeVisible({ timeout: 5000 });
@@ -412,15 +416,17 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
-    // Navigate to Controls tab
-    const controlsTab = page.getByText(/^Controls(\s*\(\d+\))?$/i).first();
+    // Navigate to Controls tab (scoped to workspace panel)
+    const wsPanel = page.locator('#tabpanel-ws');
+    await expect(wsPanel).toBeVisible({ timeout: 10000 });
+    const controlsTab = wsPanel.locator('text=/Controls/i').first();
     if (await controlsTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await controlsTab.click();
       await page.waitForLoadState('networkidle');
     }
 
     // Verify "+ Add Control" button is visible and enabled
-    const addControlBtn = page.locator('#tabpanel-ws button:has-text("Add control"), #tabpanel-ws button:has-text("+ Add control")').first();
+    const addControlBtn = wsPanel.locator('button', { hasText: /add control/i }).first();
     await expect(addControlBtn).toBeVisible({ timeout: 15000 });
     await expect(addControlBtn).toBeEnabled();
   });
