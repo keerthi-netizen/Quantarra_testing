@@ -319,10 +319,10 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await page.waitForLoadState('networkidle');
 
     // Verify workspace sub-tabs are present
-    const familiesTab = page.getByText(/Families\s*\(\d+\)|^Families$/i).first();
-    const objectivesTab = page.getByText(/Objectives\s*\(\d+\)|^Objectives$/i).first();
-    const controlsTab = page.getByText(/Controls\s*\(\d+\)|^Controls$/i).first();
-    const evidenceTab = page.getByText(/Evidence\s*\(\d+\)|^Evidence$/i).first();
+    const familiesTab = page.getByText(/^Families(\s*\(\d+\))?$/i).first();
+    const objectivesTab = page.getByText(/^Objectives(\s*\(\d+\))?$/i).first();
+    const controlsTab = page.getByText(/^Controls(\s*\(\d+\))?$/i).first();
+    const evidenceTab = page.getByText(/^Evidence(\s*\(\d+\))?$/i).first();
 
     const hasFamilies = await familiesTab.isVisible({ timeout: 10000 }).catch(() => false);
     const hasObjectives = await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false);
@@ -344,7 +344,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await page.waitForLoadState('networkidle');
 
     // Click Families/Category tab
-    const familiesTab = page.getByText(/Families\s*\(\d+\)|^Families$/i).first();
+    const familiesTab = page.getByText(/^Families(\s*\(\d+\))?$/i).first();
     if (await familiesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await familiesTab.click();
       await page.waitForLoadState('networkidle');
@@ -367,7 +367,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await page.waitForLoadState('networkidle');
 
     // Click Objectives/Sub-Category tab
-    const objectivesTab = page.getByText(/Objectives\s*\(\d+\)|^Objectives$/i).first();
+    const objectivesTab = page.getByText(/^Objectives(\s*\(\d+\))?$/i).first();
     if (await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await objectivesTab.click();
       await page.waitForLoadState('networkidle');
@@ -388,17 +388,16 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
-    // Click Controls sub-tab (may be rendered as button, link, tab, or styled div/span)
-    const controlsTab = page.locator('button, a, [role="tab"], [role="tablist"] >> *').filter({ hasText: /^Controls\s*\(\d+\)$|^Controls$/i }).first();
-    const controlsTabFallback = page.getByText(/Controls\s*\(\d+\)/i).first();
-    const target = await controlsTab.isVisible({ timeout: 5000 }).catch(() => false) ? controlsTab : controlsTabFallback;
-    await expect(target).toBeVisible({ timeout: 10000 });
-    await target.click();
+    // Click Controls sub-tab (exact match to avoid hitting "All controls" pill)
+    // Matches "Controls (176)" or "Controls" but NOT "All controls (176)"
+    const controlsTab = page.getByText(/^Controls(\s*\(\d+\))?$/i).first();
+    await expect(controlsTab).toBeVisible({ timeout: 10000 });
+    await controlsTab.click();
     await page.waitForLoadState('networkidle');
 
-    // Verify "All Controls" and "Controls I Own" sub-tabs (pill/chip style)
-    const allControlsTab = page.getByText(/All controls\s*\(\d+\)|All controls/i).first();
-    const myControlsTab = page.getByText(/Controls I own\s*\(\d+\)|Controls I own|My controls/i).first();
+    // Verify "All controls" and "Controls I own" filter pills
+    const allControlsTab = page.getByText(/^All controls(\s*\(\d+\))?$/i).first();
+    const myControlsTab = page.getByText(/^Controls I own(\s*\(\d+\))?$/i).first();
 
     await expect(allControlsTab).toBeVisible({ timeout: 10000 });
     await expect(myControlsTab).toBeVisible({ timeout: 5000 });
@@ -414,7 +413,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await page.waitForLoadState('networkidle');
 
     // Navigate to Controls tab
-    const controlsTab = page.getByText(/Controls\s*\(\d+\)|^Controls$/i).first();
+    const controlsTab = page.getByText(/^Controls(\s*\(\d+\))?$/i).first();
     if (await controlsTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await controlsTab.click();
       await page.waitForLoadState('networkidle');
