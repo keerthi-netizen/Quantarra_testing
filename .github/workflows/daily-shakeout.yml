@@ -17,37 +17,24 @@ on:
           - prod
 
 env:
-  # POC Environment
+  # Environment URLs (also in config/environments.json — env vars override if set)
   POC_BASE_URL: https://poc.quantarra.com
   POC_MC_URL: https://poc.quantarra.com:4002
   POC_AUDIT_URL: https://poc.quantarra.com:4003
   POC_API_URL: https://poc.quantarra.com/api/v1
-  POC_ADMIN_EMAIL: ${{ secrets.POC_ADMIN_EMAIL }}
-  POC_ADMIN_PASSWORD: ${{ secrets.POC_ADMIN_PASSWORD }}
 
-  # Prod Environment
   PROD_BASE_URL: https://app.quantarra.com
   PROD_MC_URL: https://mc.quantarra.com
   PROD_AUDIT_URL: https://audit.quantarra.com
   PROD_API_URL: https://app.quantarra.com/api/v1
-  PROD_ADMIN_EMAIL: ${{ secrets.PROD_ADMIN_EMAIL }}
-  PROD_ADMIN_PASSWORD: ${{ secrets.PROD_ADMIN_PASSWORD }}
 
-  # Shared credentials (contributor for RBAC tests)
-  CONTRIBUTOR_EMAIL: ${{ secrets.CONTRIBUTOR_EMAIL }}
-  CONTRIBUTOR_PASSWORD: ${{ secrets.CONTRIBUTOR_PASSWORD }}
-  POC_CONTRIBUTOR_EMAIL: ${{ secrets.POC_CONTRIBUTOR_EMAIL }}
-  POC_CONTRIBUTOR_PASSWORD: ${{ secrets.POC_CONTRIBUTOR_PASSWORD }}
-  PROD_CONTRIBUTOR_EMAIL: ${{ secrets.PROD_CONTRIBUTOR_EMAIL }}
-  PROD_CONTRIBUTOR_PASSWORD: ${{ secrets.PROD_CONTRIBUTOR_PASSWORD }}
-
-  # Jira (for auto-ticket creation on failure)
+  # Jira (token is the only real secret — rest is in environments.json)
   JIRA_BASE_URL: https://quantarra.atlassian.net
   JIRA_PROJECT_KEY: PRJAT
-  JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+  JIRA_EMAIL: keerthi@quantarra.io
   JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
 
-  # Email (for consolidated report)
+  # Email (SMTP password is the only real secret)
   SMTP_HOST: ${{ secrets.SMTP_HOST }}
   SMTP_PORT: ${{ secrets.SMTP_PORT }}
   SMTP_USER: ${{ secrets.SMTP_USER }}

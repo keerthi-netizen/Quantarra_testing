@@ -58,21 +58,8 @@ jobs:
       ENV: ${{ github.event.inputs.environment }}
       FRAMEWORK_TYPE: ${{ github.event.inputs.framework }}
       TEST_SCENARIO: ${{ github.event.inputs.scenario }}
-      # --- Credentials & URLs (hardcoded) ---
-      ADMIN_EMAIL: keerthikumar.kothandapani@gmail.com
-      ADMIN_PASSWORD: Quantarra2026!
-      CONTRIBUTOR_EMAIL: prasanna.d@keystoneeng.in
-      CONTRIBUTOR_PASSWORD: Quantarra2026!
-      MC_ADMIN_EMAIL: keerthi@quantarra.io
-      MC_ADMIN_PASSWORD: Quantarra2026!
-      STAGING_BASE_URL: https://stg.quantarra.com
-      STAGING_MC_URL: https://stg.quantarra.com:4002
-      STAGING_AUDIT_URL: https://stg.quantarra.com:4003
-      STAGING_API_URL: https://stg.quantarra.com/api/v1
-      PROD_BASE_URL: https://app.quantarra.com
-      PROD_MC_URL: https://mc.quantarra.com
-      PROD_AUDIT_URL: https://audit.quantarra.com
-      PROD_API_URL: https://app.quantarra.com/api/v1
+      # --- URLs & credentials loaded from config/environments.json ---
+      # Only secrets that can't be committed:
       JIRA_BASE_URL: https://quantarra.atlassian.net
       JIRA_EMAIL: keerthi@quantarra.io
       JIRA_PROJECT_KEY: PRJAT

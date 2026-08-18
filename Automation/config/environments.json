@@ -1,0 +1,96 @@
+{
+  "environments": {
+    "staging": {
+      "baseUrl": "https://stg.quantarra.com",
+      "mcUrl": "https://stg.quantarra.com:4002",
+      "auditUrl": "https://stg.quantarra.com:4003",
+      "apiUrl": "https://stg.quantarra.com/api/v1"
+    },
+    "poc": {
+      "baseUrl": "https://poc.quantarra.com",
+      "mcUrl": "https://poc.quantarra.com:4002",
+      "auditUrl": "https://poc.quantarra.com:4003",
+      "apiUrl": "https://poc.quantarra.com/api/v1"
+    },
+    "prod": {
+      "baseUrl": "https://app.quantarra.com",
+      "mcUrl": "https://mc.quantarra.com",
+      "auditUrl": "https://audit.quantarra.com",
+      "apiUrl": "https://app.quantarra.com/api/v1"
+    }
+  },
+
+  "credentials": {
+    "staging": {
+      "admin": {
+        "email": "keerthikumar.kothandapani@gmail.com",
+        "password": "Quantarra2026!",
+        "role": "Super User"
+      },
+      "contributor": {
+        "email": "prasanna.d@keystoneeng.in",
+        "password": "Quantarra2026!",
+        "role": "Contributor"
+      },
+      "mcAdmin": {
+        "email": "keerthi@quantarra.io",
+        "password": "Quantarra2026!",
+        "role": "Super User"
+      }
+    },
+    "poc": {
+      "admin": {
+        "email": "kirthi.218@gmail.com",
+        "password": "Quantarra2026!",
+        "role": "Administrator"
+      },
+      "contributor": {
+        "email": "keerthikumar.kothandapani@gmail.com",
+        "password": "Quantarra2026!",
+        "role": "Contributor"
+      },
+      "mcAdmin": {
+        "email": "keerthi@quantarra.io",
+        "password": "Quantarra2026!",
+        "role": "Super User"
+      }
+    },
+    "prod": {
+      "admin": {
+        "email": "keerthi@quantarra.io",
+        "password": "Quantarra2026!",
+        "role": "Super User"
+      },
+      "contributor": {
+        "email": "sales1@keystoneeng.in",
+        "password": "Quantarra2026!",
+        "role": "Contributor"
+      },
+      "mcAdmin": {
+        "email": "keerthi@quantarra.io",
+        "password": "Quantarra2026!",
+        "role": "Super User"
+      }
+    }
+  },
+
+  "jira": {
+    "baseUrl": "https://quantarra.atlassian.net",
+    "projectKey": "PRJAT",
+    "email": "keerthi@quantarra.io",
+    "apiToken": "",
+    "assigneeId": ""
+  },
+
+  "smtp": {
+    "host": "",
+    "port": "587",
+    "user": "",
+    "password": ""
+  },
+
+  "reporting": {
+    "recipients": "",
+    "slackWebhookUrl": ""
+  }
+}

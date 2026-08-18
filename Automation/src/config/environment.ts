@@ -1,8 +1,19 @@
-import * as dotenv from 'dotenv';
 import * as path from 'path';
+import * as fs from 'fs';
 
-// Load .env from project root (no override — system env vars from CI take priority)
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+/**
+ * Centralized Configuration Loader
+ *
+ * Priority: environment variable > config/environments.json > fallback default
+ *
+ * The JSON file (committed to git) is the single source of truth for:
+ *   - URLs per environment
+ *   - Test credentials per environment
+ *   - Jira config
+ *   - SMTP config
+ *
+ * Environment variables can still override any value (useful for CI one-offs).
+ */
 
 export type Environment = 'dev' | 'staging' | 'poc' | 'prod';
 
@@ -28,12 +39,38 @@ export interface JiraConfig {
   assigneeId?: string;
 }
 
-/**
- * Resolves the active environment from ENV variable or CLI arg.
- * Priority: CLI --env flag > ENV variable > defaults to 'dev'
- */
+export interface SmtpConfig {
+  host: string;
+  port: string;
+  user: string;
+  password: string;
+}
+
+// ===== Load JSON config (once) =====
+
+let _config: any = null;
+
+function loadConfig(): any {
+  if (_config) {
+    return _config;
+  }
+
+  const configPath = path.resolve(__dirname, '../../config/environments.json');
+
+  if (fs.existsSync(configPath)) {
+    _config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } else {
+    console.warn('[config] environments.json not found — falling back to env vars only.');
+    _config = { environments: {}, credentials: {}, jira: {}, smtp: {}, reporting: {} };
+  }
+
+  return _config;
+}
+
+// ===== Environment Resolution =====
+
 function resolveEnvironment(): Environment {
-  // Check for CLI argument: --env=staging
+  // CLI arg: --env=prod
   const cliArg = process.argv.find((arg) => arg.startsWith('--env='));
   if (cliArg) {
     return cliArg.split('=')[1] as Environment;
@@ -47,63 +84,118 @@ function resolveEnvironment(): Environment {
   return env as Environment;
 }
 
+// ===== Public API =====
+
 /**
  * Returns URLs for the active environment.
+ * Priority: env var > JSON config > localhost default
  */
 export function getEnvConfig(): EnvConfig {
   const env = resolveEnvironment();
   const prefix = env.toUpperCase();
+  const config = loadConfig();
+  const envUrls = config.environments?.[env] || {};
 
   return {
     env,
-    baseUrl: process.env[`${prefix}_BASE_URL`] || 'http://localhost:4000',
-    mcUrl: process.env[`${prefix}_MC_URL`] || 'http://localhost:4002',
-    auditUrl: process.env[`${prefix}_AUDIT_URL`] || 'http://localhost:4003',
-    apiUrl: process.env[`${prefix}_API_URL`] || 'http://localhost:3000/api/v1',
+    baseUrl: process.env[`${prefix}_BASE_URL`] || envUrls.baseUrl || 'http://localhost:4000',
+    mcUrl: process.env[`${prefix}_MC_URL`] || envUrls.mcUrl || 'http://localhost:4002',
+    auditUrl: process.env[`${prefix}_AUDIT_URL`] || envUrls.auditUrl || 'http://localhost:4003',
+    apiUrl: process.env[`${prefix}_API_URL`] || envUrls.apiUrl || 'http://localhost:3000/api/v1',
   };
 }
 
 /**
- * Returns test user credentials by role.
+ * Returns test user credentials by role for the active environment.
+ * Priority: env var > JSON config > hardcoded fallback
  */
 export function getTestUser(role: 'admin' | 'manager' | 'contributor' | 'mc-admin'): TestUser {
+  const env = resolveEnvironment();
+  const prefix = env.toUpperCase();
+  const config = loadConfig();
+  const envCreds = config.credentials?.[env] || {};
+
   switch (role) {
-    case 'admin':
+    case 'admin': {
+      const json = envCreds.admin || {};
       return {
-        email: process.env.ADMIN_EMAIL || 'admin@acme.com',
-        password: process.env.ADMIN_PASSWORD || 'Quantarra2026!',
-        role: 'Administrator',
+        email: process.env[`${prefix}_ADMIN_EMAIL`] || process.env.ADMIN_EMAIL || json.email || 'admin@acme.com',
+        password: process.env[`${prefix}_ADMIN_PASSWORD`] || process.env.ADMIN_PASSWORD || json.password || 'Quantarra2026!',
+        role: json.role || 'Administrator',
       };
-    case 'manager':
+    }
+    case 'manager': {
+      const json = envCreds.manager || {};
       return {
-        email: process.env.MANAGER_EMAIL || 'manager@acme.com',
-        password: process.env.MANAGER_PASSWORD || 'Quantarra2026!',
-        role: 'Manager',
+        email: process.env.MANAGER_EMAIL || json.email || 'manager@acme.com',
+        password: process.env.MANAGER_PASSWORD || json.password || 'Quantarra2026!',
+        role: json.role || 'Manager',
       };
-    case 'contributor':
+    }
+    case 'contributor': {
+      const json = envCreds.contributor || {};
       return {
-        email: process.env.CONTRIBUTOR_EMAIL || 'contributor@acme.com',
-        password: process.env.CONTRIBUTOR_PASSWORD || 'Quantarra2026!',
-        role: 'Contributor',
+        email: process.env[`${prefix}_CONTRIBUTOR_EMAIL`] || process.env.CONTRIBUTOR_EMAIL || json.email || 'contributor@acme.com',
+        password: process.env[`${prefix}_CONTRIBUTOR_PASSWORD`] || process.env.CONTRIBUTOR_PASSWORD || json.password || 'Quantarra2026!',
+        role: json.role || 'Contributor',
       };
-    case 'mc-admin':
+    }
+    case 'mc-admin': {
+      const json = envCreds.mcAdmin || {};
       return {
-        email: process.env.MC_ADMIN_EMAIL || 'mc-admin@quantarra.io',
-        password: process.env.MC_ADMIN_PASSWORD || 'Quantarra2026!',
-        role: 'Super User',
+        email: process.env.MC_ADMIN_EMAIL || json.email || 'mc-admin@quantarra.io',
+        password: process.env.MC_ADMIN_PASSWORD || json.password || 'Quantarra2026!',
+        role: json.role || 'Super User',
       };
+    }
   }
 }
 
 /**
- * Returns Jira configuration for bug creation.
+ * Returns Jira configuration.
+ * Priority: env var > JSON config
  */
 export function getJiraConfig(): JiraConfig {
+  const config = loadConfig();
+  const jira = config.jira || {};
+
   return {
-    baseUrl: process.env.JIRA_BASE_URL || 'https://quantarra.atlassian.net',
-    projectKey: process.env.JIRA_PROJECT_KEY || 'PRJAT',
-    email: process.env.JIRA_EMAIL || '',
-    apiToken: process.env.JIRA_API_TOKEN || '',
-    assigneeId: process.env.JIRA_ASSIGNEE_ID,
+    baseUrl: process.env.JIRA_BASE_URL || jira.baseUrl || 'https://quantarra.atlassian.net',
+    projectKey: process.env.JIRA_PROJECT_KEY || jira.projectKey || 'PRJAT',
+    email: process.env.JIRA_EMAIL || jira.email || '',
+    apiToken: process.env.JIRA_API_TOKEN || jira.apiToken || '',
+    assigneeId: process.env.JIRA_ASSIGNEE_ID || jira.assigneeId || undefined,
   };
+}
+
+/**
+ * Returns SMTP configuration for email reports.
+ * Priority: env var > JSON config
+ */
+export function getSmtpConfig(): SmtpConfig {
+  const config = loadConfig();
+  const smtp = config.smtp || {};
+
+  return {
+    host: process.env.SMTP_HOST || smtp.host || '',
+    port: process.env.SMTP_PORT || smtp.port || '587',
+    user: process.env.SMTP_USER || smtp.user || '',
+    password: process.env.SMTP_PASSWORD || smtp.password || '',
+  };
+}
+
+/**
+ * Returns report recipients (comma-separated emails).
+ */
+export function getReportRecipients(): string {
+  const config = loadConfig();
+  return process.env.REPORT_RECIPIENTS || config.reporting?.recipients || '';
+}
+
+/**
+ * Returns Slack webhook URL for notifications.
+ */
+export function getSlackWebhookUrl(): string {
+  const config = loadConfig();
+  return process.env.SLACK_WEBHOOK_URL || config.reporting?.slackWebhookUrl || '';
 }
