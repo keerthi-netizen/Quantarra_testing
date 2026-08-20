@@ -24,6 +24,9 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     }
   });
 
+  // Daily shakeout always tests against a SOC 2 Type 2 audit for deterministic results.
+  const TARGET_FRAMEWORK = 'SOC 2 Type 2';
+
   /** Helper: navigate to home and wait for audit tiles to load */
   async function goHomeAndWaitForAudits(page) {
     await page.goto('/');
@@ -33,10 +36,32 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     return auditLink;
   }
 
-  /** Helper: click first audit tile and wait for audit page to load */
+  /**
+   * Helper: navigate to the SOC 2 Type 2 audit and wait for the audit page to load.
+   * Uses the search box to filter to SOC 2, then clicks the matching audit tile.
+   * Falls back to the first audit if no SOC 2 Type 2 audit is found.
+   */
   async function navigateToFirstAudit(page) {
-    const auditLink = await goHomeAndWaitForAudits(page);
-    await auditLink.click();
+    await goHomeAndWaitForAudits(page);
+
+    // Filter the audit list via search box (reduces list, makes selection reliable)
+    const searchBox = page.locator('input[placeholder*="Search audit"], input[placeholder*="Search"]').first();
+    if (await searchBox.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await searchBox.fill('SOC 2 Type 2');
+      await page.waitForLoadState('networkidle');
+      await page.waitForTimeout(1500);
+    }
+
+    // Prefer the audit tile whose text contains "SOC 2 Type 2"
+    const soc2Audit = page.locator('a[href*="/audit/"]').filter({ hasText: /SOC 2 Type 2/i }).first();
+    const hasSoc2 = await soc2Audit.isVisible({ timeout: 5000 }).catch(() => false);
+
+    const target = hasSoc2 ? soc2Audit : page.locator('a[href*="/audit/"]').first();
+    if (!hasSoc2) {
+      console.log(`  ⚠️ No "${TARGET_FRAMEWORK}" audit found — falling back to first available audit`);
+    }
+
+    await target.click();
     await page.waitForURL(/\/audit\//, { timeout: 30000, waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle');
     // Wait for tabs to render
