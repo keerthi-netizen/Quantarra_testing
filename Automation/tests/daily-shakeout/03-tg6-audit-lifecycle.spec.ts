@@ -319,12 +319,15 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await page.waitForLoadState('networkidle');
 
     // Verify workspace sub-tabs are present (scoped to workspace panel)
+    // Framework-dependent naming:
+    //   SOC 2 etc:        Families | Objectives | Controls | Evidence
+    //   CyberFundamentals: Categories | Subcategories | Requirements | Evidence
     const wsPanel = page.locator('#tabpanel-ws');
     await expect(wsPanel).toBeVisible({ timeout: 10000 });
 
-    const familiesTab = wsPanel.locator('text=/Families/i').first();
-    const objectivesTab = wsPanel.locator('text=/Objectives/i').first();
-    const controlsTab = wsPanel.locator('text=/Controls/i').first();
+    const familiesTab = wsPanel.locator('text=/Families|Categories/i').first();
+    const objectivesTab = wsPanel.locator('text=/Objectives|Subcategories/i').first();
+    const controlsTab = wsPanel.locator('text=/Controls|Requirements/i').first();
     const evidenceTab = wsPanel.locator('text=/Evidence/i').first();
 
     const hasFamilies = await familiesTab.isVisible({ timeout: 10000 }).catch(() => false);
@@ -332,9 +335,9 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     const hasControls = await controlsTab.isVisible({ timeout: 5000 }).catch(() => false);
     const hasEvidence = await evidenceTab.isVisible({ timeout: 5000 }).catch(() => false);
 
-    // At least Controls should be visible (core tab)
+    // At least the Controls/Requirements tab should be visible (core tab)
     expect(hasControls).toBeTruthy();
-    console.log(`  📋 Workspace tabs: Families=${hasFamilies}, Objectives=${hasObjectives}, Controls=${hasControls}, Evidence=${hasEvidence}`);
+    console.log(`  📋 Workspace tabs: Families/Categories=${hasFamilies}, Objectives/Subcategories=${hasObjectives}, Controls/Requirements=${hasControls}, Evidence=${hasEvidence}`);
   });
 
   test('TC-21: Workspace — Family (Category) tab shows subtabs', async ({ page }) => {
@@ -346,8 +349,8 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
-    // Click Families/Category tab
-    const familiesTab = page.locator('#tabpanel-ws').locator('text=/Families/i').first();
+    // Click Families/Category tab (SOC 2: "Families", CyFun: "Categories")
+    const familiesTab = page.locator('#tabpanel-ws').locator('text=/Families|Categories/i').first();
     if (await familiesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await familiesTab.click();
       await page.waitForLoadState('networkidle');
@@ -369,8 +372,8 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     await workspaceTab.click();
     await page.waitForLoadState('networkidle');
 
-    // Click Objectives/Sub-Category tab
-    const objectivesTab = page.locator('#tabpanel-ws').locator('text=/Objectives/i').first();
+    // Click Objectives/Sub-Category tab (SOC 2: "Objectives", CyFun: "Subcategories")
+    const objectivesTab = page.locator('#tabpanel-ws').locator('text=/Objectives|Subcategories/i').first();
     if (await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await objectivesTab.click();
       await page.waitForLoadState('networkidle');
