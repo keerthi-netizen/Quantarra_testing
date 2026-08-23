@@ -109,18 +109,44 @@ async function loginAndSave(credential: ShakeoutCredential, sessionPath: string)
 
   try {
     await page.goto('/login');
-    await page.waitForLoadState('networkidle');
+    // Wait for the form to be interactive, NOT for networkidle.
+    // Prod has analytics/websocket/AI-context traffic that keeps the network
+    // busy indefinitely, so `networkidle` can hang until timeout even after a
+    // successful manual-equivalent login. Wait for the actual input instead.
+    const emailInput = page.locator('input[type="email"], input[name="email"]').first();
+    await emailInput.waitFor({ state: 'visible', timeout: 30000 });
 
-    await page.locator('input[type="email"], input[name="email"]').first().fill(credential.email);
+    await emailInput.fill(credential.email);
     await page.locator('input[type="password"]').first().fill(credential.password);
+
+    // Confirm the login API actually returned 200 — this is the real success
+    // signal, independent of how long the network stays busy afterwards.
+    const loginResponse = page
+      .waitForResponse(
+        (res) => res.url().includes('/auth/login') && res.request().method() === 'POST',
+        { timeout: 30000 },
+      )
+      .catch(() => null);
+
     await page.locator('button[type="submit"]').click();
 
-    // Explicit wait — resolves as soon as URL changes, max 60s
+    const res = await loginResponse;
+    if (res && !res.ok()) {
+      const status = res.status();
+      let detail = '';
+      try {
+        detail = JSON.stringify(await res.json()).substring(0, 200);
+      } catch {
+        // ignore body parse errors
+      }
+      throw new Error(`Login API returned ${status}. ${detail}`);
+    }
+
+    // Explicit wait — resolves as soon as URL leaves /login, max 60s
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
       timeout: 60000,
       waitUntil: 'domcontentloaded',
     });
-    await page.waitForLoadState('networkidle');
 
     // Dismiss onboarding wizard if present
     const skipBtn = page.getByRole('button', { name: /skip|close|dismiss|later|not now/i });
@@ -130,6 +156,19 @@ async function loginAndSave(credential: ShakeoutCredential, sessionPath: string)
 
     // Save session state (cookies + localStorage)
     await context.storageState({ path: sessionPath });
+
+    // Verify the saved session actually carries auth. An empty session
+    // (no cookies AND no origin storage) means login silently failed and
+    // downstream tests would hit the login page instead of the app.
+    const saved = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
+    const hasAuth =
+      (saved.cookies?.length ?? 0) > 0 ||
+      (saved.origins?.some((o: { localStorage?: unknown[] }) => (o.localStorage?.length ?? 0) > 0) ?? false);
+
+    if (!hasAuth) {
+      throw new Error('Login produced an empty session (no cookies or localStorage)');
+    }
+
     console.log(`  ✅ Session saved: ${credential.role} (${credential.email})`);
   } finally {
     await context.close();
