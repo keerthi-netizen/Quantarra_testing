@@ -114,7 +114,7 @@ test.describe('TG-3: Contributor Navigation — Restricted Access', () => {
     }
   });
 
-  test('Contributor login — role is Contributor', async ({ page }) => {
+  test('Contributor login — logged-in user is "Matrix Contributor"', async ({ page }) => {
     test.skip(!shouldRun('TG-3', 'Scenario 3', 'TC-1'), 'Excluded by Excel — Run Shakeout = No');
 
     await page.goto('/');
@@ -124,11 +124,12 @@ test.describe('TG-3: Contributor Navigation — Restricted Access', () => {
     // Sidebar must render (confirms we are authenticated, not on /login).
     await expect(page.locator('aside, nav').first()).toBeVisible({ timeout: 30000 });
 
-    // The role label is shown in the user menu / profile area. The exact
-    // Radix container id (e.g. radix-«r1q») is generated per-render and is NOT
-    // stable, so assert on the visible role text instead of an xpath.
-    const roleLabel = page.getByText(/contributor/i).first();
-    await expect(roleLabel).toBeVisible({ timeout: 15000 });
+    // The logged-in user's display name is shown in the user menu / profile
+    // area. The exact Radix container id (e.g. radix-«r1q») is generated
+    // per-render and is NOT stable, so assert on the visible name text.
+    // Scenario 3 expects the contributor to log in as "Matrix Contributor".
+    const userName = page.getByText(/Matrix Contributor/i).first();
+    await expect(userName).toBeVisible({ timeout: 15000 });
   });
 
   test('Contributor login — Admin not visible', async ({ page }) => {
@@ -199,8 +200,23 @@ test.describe('TG-3: Contributor Navigation — Restricted Access', () => {
     await expect(addAuditBtn).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('Contributor — all audit tiles are the default framework (SOC 2 Type 2)', async ({ page }) => {
+  test('Contributor — all audit tiles match the expected framework', async ({ page }) => {
     test.skip(!shouldRun('TG-3', 'Scenario 3', 'TC-7'), 'Excluded by Excel — Run Shakeout = No');
+
+    // Determine the expected framework:
+    // - Locally / by default → SOC 2 Type 2 (the org default framework).
+    // - In GitHub Actions → the workflow's "framework" input, surfaced as the
+    //   FRAMEWORK_TYPE env var (see .github/workflows/qa-automation.yml). When
+    //   it is unset or 'N/A', fall back to the default.
+    const isCI = process.env.GITHUB_ACTIONS === 'true';
+    const frameworkParam = (process.env.FRAMEWORK_TYPE || '').trim();
+    const hasParam = isCI && frameworkParam !== '' && frameworkParam.toUpperCase() !== 'N/A';
+    const expectedFramework = hasParam ? frameworkParam : 'SOC 2 Type 2';
+
+    console.log(
+      `  ℹ️ TC-7 expected framework: "${expectedFramework}" ` +
+        `(CI=${isCI}, FRAMEWORK_TYPE="${frameworkParam || '<unset>'}")`,
+    );
 
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -213,12 +229,14 @@ test.describe('TG-3: Contributor Navigation — Restricted Access', () => {
     const count = await tiles.count();
     expect(count).toBeGreaterThan(0);
 
-    // Every visible audit tile should reference the default framework.
-    // If the contributor's org default is SOC 2 Type 2, all tiles carry that
-    // framework name. Assert none of them show a different framework label.
+    // Every visible audit tile should reference the expected framework.
+    const expectedLower = expectedFramework.toLowerCase();
     for (let i = 0; i < count; i++) {
       const tileText = (await tiles.nth(i).innerText()).toLowerCase();
-      expect(tileText).toContain('soc 2 type 2');
+      expect(
+        tileText,
+        `Audit tile #${i} should reference framework "${expectedFramework}"`,
+      ).toContain(expectedLower);
     }
   });
 });
