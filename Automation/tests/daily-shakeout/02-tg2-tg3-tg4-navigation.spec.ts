@@ -29,7 +29,7 @@ test.describe('TG-2: Admin Navigation — Workspace Pages', () => {
     }
   });
 
-  test('Admin login — "Create new" button and Admin dropdown visible', async ({ page }) => {
+  test('Admin login — "Create new" button, Admin dropdown, and audit tiles load', async ({ page }) => {
     test.skip(!shouldRun('TG-2', 'Scenario 1', 'TC-2'), 'Excluded by Excel — Run Shakeout = No');
 
     await page.goto('/');
@@ -41,6 +41,11 @@ test.describe('TG-2: Admin Navigation — Workspace Pages', () => {
 
     const adminBtn = page.locator('aside button, nav button').filter({ hasText: /^Admin$/ }).first();
     await expect(adminBtn).toBeVisible({ timeout: 30000 });
+
+    // Home page validation: audit tiles (href="/audit/...") are loaded.
+    const auditTiles = page.locator('a[href*="/audit/"]');
+    await expect(auditTiles.first()).toBeVisible({ timeout: 30000 });
+    expect(await auditTiles.count()).toBeGreaterThan(0);
   });
 
   test('Workspace — Homepage loads with audit tiles', async ({ page }) => {
@@ -109,6 +114,23 @@ test.describe('TG-3: Contributor Navigation — Restricted Access', () => {
     }
   });
 
+  test('Contributor login — role is Contributor', async ({ page }) => {
+    test.skip(!shouldRun('TG-3', 'Scenario 3', 'TC-1'), 'Excluded by Excel — Run Shakeout = No');
+
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    await dismissWizard(page);
+
+    // Sidebar must render (confirms we are authenticated, not on /login).
+    await expect(page.locator('aside, nav').first()).toBeVisible({ timeout: 30000 });
+
+    // The role label is shown in the user menu / profile area. The exact
+    // Radix container id (e.g. radix-«r1q») is generated per-render and is NOT
+    // stable, so assert on the visible role text instead of an xpath.
+    const roleLabel = page.getByText(/contributor/i).first();
+    await expect(roleLabel).toBeVisible({ timeout: 15000 });
+  });
+
   test('Contributor login — Admin not visible', async ({ page }) => {
     test.skip(!shouldRun('TG-3', 'Scenario 3', 'TC-2'), 'Excluded by Excel — Run Shakeout = No');
 
@@ -153,6 +175,51 @@ test.describe('TG-3: Contributor Navigation — Restricted Access', () => {
     await expect(page.locator('aside, nav').first()).toBeVisible({ timeout: 30000 });
     const intLink = page.locator('a[href="/integrations"]');
     await expect(intLink).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('Contributor — "Create new" / Add Audit button not visible', async ({ page }) => {
+    test.skip(!shouldRun('TG-3', 'Scenario 3', 'TC-6'), 'Excluded by Excel — Run Shakeout = No');
+
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    await dismissWizard(page);
+
+    // Sidebar renders (authenticated) before asserting the button is absent.
+    await expect(page.locator('aside, nav').first()).toBeVisible({ timeout: 30000 });
+
+    // Admin/Manager see a "Create new" button (aria-label) that opens the
+    // create-audit flow. Contributors must NOT see it. Cover both the
+    // aria-label variant and any "Add audit"/"Create" text button.
+    const createNewBtn = page.locator('button[aria-label="Create new"]');
+    await expect(createNewBtn).not.toBeVisible({ timeout: 5000 });
+
+    const addAuditBtn = page
+      .locator('button')
+      .filter({ hasText: /add audit|create new|create audit/i });
+    await expect(addAuditBtn).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('Contributor — all audit tiles are the default framework (SOC 2 Type 2)', async ({ page }) => {
+    test.skip(!shouldRun('TG-3', 'Scenario 3', 'TC-7'), 'Excluded by Excel — Run Shakeout = No');
+
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    await dismissWizard(page);
+
+    // Audit tiles must render.
+    const tiles = page.locator('a[href*="/audit/"]');
+    await expect(tiles.first()).toBeVisible({ timeout: 30000 });
+
+    const count = await tiles.count();
+    expect(count).toBeGreaterThan(0);
+
+    // Every visible audit tile should reference the default framework.
+    // If the contributor's org default is SOC 2 Type 2, all tiles carry that
+    // framework name. Assert none of them show a different framework label.
+    for (let i = 0; i < count; i++) {
+      const tileText = (await tiles.nth(i).innerText()).toLowerCase();
+      expect(tileText).toContain('soc 2 type 2');
+    }
   });
 });
 
