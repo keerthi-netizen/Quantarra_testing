@@ -5,6 +5,7 @@ reports/
 test-results/
 playwright-report/
 blob-report/
+.auth/
 *.log
 .DS_Store
 Thumbs.db
