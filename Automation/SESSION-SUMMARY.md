@@ -1,3 +1,33 @@
+# Session Summary — 2026-08-30 (part 2, Eva Keerthi, QA)
+
+## TG-7 Scenario 7: content validation + renumber
+
+- **New TC-3** "Filtered list contains ONLY controls of the selected status": after applying a
+  status filter, reads the workspace **Status column** for every visible row and asserts each equals
+  the selected status (not just the badge/count). This closes the gap where a filter could change the
+  count but list the wrong controls. Data-adaptive (uses first status with rows; used "Not started",
+  172 controls on staging).
+- **Key UI fact**: the workspace controls list is a `<table>`; header order is
+  ["", "Control ID & Statement", "Owner", "Function", **"Status"**, "Due Date", "Frequency",
+  "Last Updated", "Notes", "In Audit"]. Per-row status IS assertable text in the Status column
+  (helper `readRowStatuses` finds the column by header text, not a fixed index).
+- **Renumbered Scenario 7 → TC-1..TC-18** (Excel + spec together): inserted content-validation as
+  TC-3, shifted old TC-3..17 to TC-4..18. New mapping: TC-4 resets-on-ControlsIOwn, TC-5 sub-tab
+  isolation, TC-6 no-badge, TC-7 Owner/Function-not-restricted, TC-8 Owner/Function-on-AllControls,
+  TC-9 restricted-minus-Owner/Function, TC-10 persistence (+TC-10b empty-result negative),
+  TC-11..14 Internal Audit filters, TC-15 layout, TC-16 cross-audit, TC-17 clear-all, TC-18 a11y.
+- **Hardened** `goHomeAndWaitForAudits`: dropped `waitForLoadState('networkidle')` (hangs on
+  staging/prod background traffic → caused TC-16 flakiness) in favour of domcontentloaded + tile
+  visibility.
+- **IA content validation NOT added**: IA sub-tabs are empty (0 rows) on both staging and prod, so
+  there is no IA table to probe or validate. The IA filter is Owner-based (not status). Revisit with
+  a proper DOM probe once IA sub-tabs have data — did not write blind assertions.
+- **Verified**: full TG-7 suite 21/21 passed on staging (headed). Scenario 7 also confirmed 20/20 on
+  PROD earlier this session — the per-sub-tab filter feature IS live on Prod; TG-7 shakeout flags
+  flipped to Yes.
+
+---
+
 # Session Summary — 2026-08-30 (Eva Keerthi, QA)
 
 Repo: quantarra-qa-automation
