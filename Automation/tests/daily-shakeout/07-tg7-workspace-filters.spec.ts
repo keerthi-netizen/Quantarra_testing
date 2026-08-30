@@ -53,8 +53,11 @@ const SUBTAB = {
 
 /** Navigate to home and wait for audit tiles. */
 async function goHomeAndWaitForAudits(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForLoadState('networkidle');
+  // Use domcontentloaded, NOT networkidle. On staging/prod the home page keeps
+  // background traffic (analytics/websocket) alive, so networkidle can hang
+  // until timeout even after the page is fully usable. Wait for the audit
+  // tiles to render instead — that is the real "ready" signal.
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('a[href*="/audit/"]').first()).toBeVisible({ timeout: 30000 });
 }
 
@@ -207,6 +210,54 @@ function badge(page: Page) {
   return page.getByTestId('workspace-filter-badge');
 }
 
+/**
+ * Read the "Status" column for every visible control row in the workspace
+ * controls table. Returns the trimmed status text per row (e.g. "Accepted",
+ * "In progress"). The table header order is:
+ *   ["", "Control ID & Statement", "Owner", "Function", "Status", "Due Date", ...]
+ * so we locate the "Status" column by its header text (resilient to column
+ * re-ordering) rather than a hard-coded index.
+ */
+async function readRowStatuses(page: Page): Promise<string[]> {
+  const table = page.locator('#tabpanel-ws table').first();
+  await expect(table).toBeVisible({ timeout: 10000 });
+
+  return table.evaluate((tbl) => {
+    const heads = Array.from(tbl.querySelectorAll('thead th, thead td')).map((h) =>
+      (h.textContent || '').trim(),
+    );
+    const statusIdx = heads.findIndex((h) => /^status$/i.test(h));
+    if (statusIdx < 0) {
+      return [];
+    }
+
+    const rows = Array.from(tbl.querySelectorAll('tbody tr'));
+    return rows.map((r) => {
+      const cells = r.querySelectorAll('td');
+      return (cells[statusIdx]?.textContent || '').trim();
+    });
+  });
+}
+
+/**
+ * Assert that EVERY visible control row shows the expected status — i.e. the
+ * filter didn't just change the count, it actually restricted the list to
+ * controls of the selected status. Fails if any row shows a different status.
+ */
+async function expectAllRowsHaveStatus(page: Page, expectedStatus: string): Promise<void> {
+  const statuses = await readRowStatuses(page);
+  expect(statuses.length, 'expected at least one filtered control row').toBeGreaterThan(0);
+
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const expected = norm(expectedStatus);
+  const mismatches = statuses.filter((s) => norm(s) !== expected);
+
+  expect(
+    mismatches,
+    `all rows should show "${expectedStatus}"; found other statuses: ${JSON.stringify(mismatches)}`,
+  ).toHaveLength(0);
+}
+
 // ── TG-7 (admin session): Audit Workspace Controls sub-tab filters ───────────
 
 test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
@@ -227,7 +278,7 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     expect(count).toBeGreaterThan(0);
   });
 
-  test('TC-2: All controls — apply "In progress", drawer closes, badge = 1', async ({ page }) => {
+  test('TC-2: All controls — apply "In progress", badge = 1, and rows match the status', async ({ page }) => {
     test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-2'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
@@ -236,12 +287,44 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await openFilterSheet(page);
     await applyStatus(page, 'In progress');
 
+    // Drawer closed + badge shows one active filter.
     await expect(badge(page)).toBeVisible({ timeout: 10000 });
     await expect(badge(page)).toHaveText('1');
+
+    // Content validation: the filter must ACTUALLY restrict the list — every
+    // visible row's Status column must read "In progress". (If the status has
+    // no controls on this audit the list is empty, which the negative TC-9b
+    // covers; only assert content when rows are present.)
+    const rowCount = await controlRows(page).count();
+    if (rowCount > 0) {
+      await expectAllRowsHaveStatus(page, 'In progress');
+    } else {
+      console.log('  ℹ️ TC-2: no "In progress" controls on this audit — content check skipped (see TC-10b)');
+    }
   });
 
-  test('TC-3: Filter resets on "Controls I own"; persists on return to All controls', async ({ page }) => {
+  test('TC-3: Filtered list contains ONLY controls of the selected status', async ({ page }) => {
     test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-3'), 'Excluded by Excel — Run Shakeout = No');
+
+    await navigateToAudit(page);
+    await gotoWorkspaceControls(page);
+
+    // Pick whichever submission status actually has controls on this audit, so
+    // the content assertion always runs against real data (not skipped when a
+    // hard-coded status happens to be empty).
+    const applied = await applyFirstStatusWithResults(page);
+    expect(applied, 'no submission status yielded controls to validate').not.toBeNull();
+    console.log(`  ℹ️ TC-3 validating status "${applied!.status}" (${applied!.count} controls)`);
+
+    await expect(badge(page)).toHaveText('1', { timeout: 10000 });
+
+    // Core validation: EVERY visible row's Status column equals the filter.
+    // Catches a filter that changes the count but shows the wrong controls.
+    await expectAllRowsHaveStatus(page, applied!.status);
+  });
+
+  test('TC-4: Filter resets on "Controls I own"; persists on return to All controls', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-4'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -264,8 +347,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await expect(badge(page)).toHaveText('1', { timeout: 10000 });
   });
 
-  test('TC-4: Each sub-tab keeps its own filter independently (no cross-contamination)', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-4'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-5: Each sub-tab keeps its own filter independently (no cross-contamination)', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-5'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -299,8 +382,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await expect(badge(page)).toHaveText('1', { timeout: 10000 });
   });
 
-  test('TC-5: No badge shown when no filter is active on a sub-tab', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-5'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-6: No badge shown when no filter is active on a sub-tab', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-6'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -318,8 +401,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await expect(badge(page)).toHaveCount(0, { timeout: 10000 });
   });
 
-  test('TC-6: "Owner" and "Function" NOT shown on restricted sub-tabs', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-6'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-7: "Owner" and "Function" NOT shown on restricted sub-tabs', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-7'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -349,8 +432,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     expect(checked, 'at least one restricted sub-tab should be present to verify').toBeGreaterThan(0);
   });
 
-  test('TC-7: "Owner" and "Function" ARE shown on "All controls"', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-7'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-8: "Owner" and "Function" ARE shown on "All controls"', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-8'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -362,8 +445,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await expect(dlg.getByText('Function', { exact: true })).toBeVisible({ timeout: 10000 });
   });
 
-  test('TC-8: Restricted sub-tab drawer = All controls options MINUS Owner/Function', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-8'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-9: Restricted sub-tab drawer = All controls options MINUS Owner/Function', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-9'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -392,8 +475,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     expect(new Set(restricted)).toEqual(new Set(expected));
   });
 
-  test('TC-9: Filter persists after opening a control and navigating back', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-9'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-10: Filter persists after opening a control and navigating back', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-10'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -438,8 +521,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await expect(badge(page)).toHaveText('1');
   });
 
-  test('TC-9b: Empty-result filter shows a graceful empty state (negative)', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-9'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-10b: Empty-result filter shows a graceful empty state (negative)', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-10'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -505,8 +588,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await expect(crash).toHaveCount(0, { timeout: 3000 });
   });
 
-  test('TC-15: Filter does not leak across audits', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-15'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-16: Filter does not leak across audits', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-16'), 'Excluded by Excel — Run Shakeout = No');
 
     // Need at least 2 audits to verify cross-audit isolation.
     await goHomeAndWaitForAudits(page);
@@ -531,8 +614,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await expect(badge(page)).toHaveCount(0, { timeout: 10000 });
   });
 
-  test('TC-16: Clear all clears only the current sub-tab', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-16'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-17: Clear all clears only the current sub-tab', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-17'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -565,8 +648,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await expect(badge(page)).toHaveText('1', { timeout: 10000 });
   });
 
-  test('TC-17: Keyboard/a11y — Enter opens, Escape closes without applying', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-17'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-18: Keyboard/a11y — Enter opens, Escape closes without applying', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-18'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -584,8 +667,8 @@ test.describe('TG-7: Audit Workspace — Filter per sub-tab', () => {
     await expect(badge(page)).toHaveCount(0, { timeout: 10000 });
   });
 
-  test('TC-14: Search / Filters / Add Control layout — all functional', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-14'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-15: Search / Filters / Add Control layout — all functional', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-15'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     await gotoWorkspaceControls(page);
@@ -707,8 +790,8 @@ test.describe('TG-7: Internal Audit — Filter per sub-tab', () => {
     return 'applied';
   }
 
-  test('TC-10: IA "Ready for review" — open drawer, apply a filter, drawer closes', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-10'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-11: IA "Ready for review" — open drawer, apply a filter, drawer closes', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-11'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     if (!(await gotoInternalAudit(page))) {
@@ -729,8 +812,8 @@ test.describe('TG-7: Internal Audit — Filter per sub-tab', () => {
     await expect(page.getByRole('dialog')).toBeHidden({ timeout: 10000 });
   });
 
-  test('TC-11: IA filter isolates per sub-tab (Ready for review vs Needs updates)', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-11'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-12: IA filter isolates per sub-tab (Ready for review vs Needs updates)', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-12'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     if (!(await gotoInternalAudit(page))) {
@@ -760,8 +843,8 @@ test.describe('TG-7: Internal Audit — Filter per sub-tab', () => {
     await expect(badge(page)).toHaveCount(badgeAfterApply, { timeout: 10000 });
   });
 
-  test('TC-12: IA sub-tabs keep their own filter independently', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-12'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-13: IA sub-tabs keep their own filter independently', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-13'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     if (!(await gotoInternalAudit(page))) {
@@ -792,8 +875,8 @@ test.describe('TG-7: Internal Audit — Filter per sub-tab', () => {
     await expect(badge(page)).toHaveCount(0, { timeout: 10000 });
   });
 
-  test('TC-13: IA drawer keeps all filter options across sub-tabs', async ({ page }) => {
-    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-13'), 'Excluded by Excel — Run Shakeout = No');
+  test('TC-14: IA drawer keeps all filter options across sub-tabs', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-14'), 'Excluded by Excel — Run Shakeout = No');
 
     await navigateToAudit(page);
     if (!(await gotoInternalAudit(page))) {
@@ -834,3 +917,4 @@ test.describe('TG-7: Internal Audit — Filter per sub-tab', () => {
     expect(checked, 'at least one IA sub-tab should be present').toBeGreaterThan(0);
   });
 });
+
