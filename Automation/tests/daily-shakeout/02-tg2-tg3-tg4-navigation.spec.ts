@@ -29,7 +29,7 @@ test.describe('TG-2: Admin Navigation — Workspace Pages', () => {
     }
   });
 
-  test('Admin login — "Create new" button and Admin dropdown visible', async ({ page }) => {
+  test('Admin login — "Create new" button, Admin dropdown, and audit tiles load', async ({ page }) => {
     test.skip(!shouldRun('TG-2', 'Scenario 1', 'TC-2'), 'Excluded by Excel — Run Shakeout = No');
 
     await page.goto('/');
@@ -41,6 +41,11 @@ test.describe('TG-2: Admin Navigation — Workspace Pages', () => {
 
     const adminBtn = page.locator('aside button, nav button').filter({ hasText: /^Admin$/ }).first();
     await expect(adminBtn).toBeVisible({ timeout: 30000 });
+
+    // Home page validation: audit tiles (href="/audit/...") are loaded.
+    const auditTiles = page.locator('a[href*="/audit/"]');
+    await expect(auditTiles.first()).toBeVisible({ timeout: 30000 });
+    expect(await auditTiles.count()).toBeGreaterThan(0);
   });
 
   test('Workspace — Homepage loads with audit tiles', async ({ page }) => {
