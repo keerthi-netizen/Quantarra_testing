@@ -812,6 +812,54 @@ test.describe('TG-7: Internal Audit — Filter per sub-tab', () => {
     await expect(page.getByRole('dialog')).toBeHidden({ timeout: 10000 });
   });
 
+  test('TC-11b: IA filter button shows an active-filter count badge (PRJAT-1260)', async ({ page }) => {
+    test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-11'), 'Excluded by Excel — Run Shakeout = No');
+
+    // KNOWN BUG PRJAT-1260: the Internal Audit filter button does NOT render an
+    // active-filter count badge (the Audit Workspace filter does). Marked as
+    // expected-to-fail so the suite stays green while tracking the bug — when
+    // this test starts PASSING, the bug is fixed and test.fail() should be
+    // removed. See https://quantarra.atlassian.net/browse/PRJAT-1260
+    test.fail(true, 'PRJAT-1260: IA filter button missing active-filter badge');
+
+    // Target an audit known to have Internal Audit activity. Most audits have
+    // empty IA sub-tabs; "Sour Pickles" (staging) has controls in "Ready for
+    // review", which is required to exercise the filter badge.
+    await navigateToAudit(page, 'Sour Pickles');
+    if (!(await gotoInternalAudit(page))) {
+      test.skip(true, 'Internal Audit tab not available for this user/audit');
+      return;
+    }
+    if (!(await selectIaSubTab(page, IA_SUBTAB.readyForReview))) {
+      test.skip(true, '"Ready for review" sub-tab not available');
+      return;
+    }
+
+    // IA content loads asynchronously (~3s). Wait for the row table to populate.
+    const iaRows = page.locator('main table tbody tr');
+    await iaRows.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    const rowsBefore = await iaRows.count();
+    if (rowsBefore === 0) {
+      test.skip(true, 'No IA rows to filter — badge check not applicable');
+      return;
+    }
+
+    await openIaFilterDrawer(page);
+    const applied = await applyFirstOwner(page);
+    expect(applied, 'IA filter drawer had no applicable option to select').not.toBeNull();
+
+    // KNOWN BUG PRJAT-1260: the Internal Audit filter button does NOT render an
+    // active-filter count badge (the Audit Workspace filter does). This test
+    // asserts the CORRECT behaviour — a numeric badge on the IA Filter button
+    // after applying a filter — so it fails until PRJAT-1260 is fixed.
+    const iaFilterBtn = page.getByRole('button', { name: /open filters/i }).first();
+    const badgeOnBtn = iaFilterBtn.locator('text=/^\\d+$/').first();
+    await expect(
+      badgeOnBtn,
+      'IA filter button should show an active-filter count badge (PRJAT-1260)',
+    ).toBeVisible({ timeout: 10000 });
+  });
+
   test('TC-12: IA filter isolates per sub-tab (Ready for review vs Needs updates)', async ({ page }) => {
     test.skip(!shouldRun('TG-7', 'Scenario 7', 'TC-12'), 'Excluded by Excel — Run Shakeout = No');
 
