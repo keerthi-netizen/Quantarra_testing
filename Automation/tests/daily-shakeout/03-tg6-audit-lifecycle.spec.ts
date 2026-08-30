@@ -29,8 +29,11 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
   /** Helper: navigate to home and wait for audit tiles to load */
   async function goHomeAndWaitForAudits(page) {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    // Use domcontentloaded, NOT networkidle. On staging/prod the home page keeps
+    // background traffic (analytics/websocket/AI-context) alive, so networkidle
+    // can hang until the 60s timeout even after the page is fully usable. Wait
+    // for the audit tiles to render instead — that is the real "ready" signal.
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     const auditLink = page.locator('a[href*="/audit/"]').first();
     await expect(auditLink).toBeVisible({ timeout: 30000 });
     return auditLink;
@@ -48,7 +51,8 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     const searchBox = page.locator('input[placeholder*="Search audit"], input[placeholder*="Search"]').first();
     if (await searchBox.isVisible({ timeout: 5000 }).catch(() => false)) {
       await searchBox.fill('SOC 2 Type 2');
-      await page.waitForLoadState('networkidle');
+      // Search re-queries the list; a short settle is enough. Avoid networkidle
+      // (background traffic keeps the network busy and hangs the wait).
       await page.waitForTimeout(1500);
     }
 
@@ -63,16 +67,15 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     await target.click();
     await page.waitForURL(/\/audit\//, { timeout: 30000, waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle');
-    // Wait for tabs to render
+    // Wait for the audit page's tabs to render — this is the real ready signal.
+    // (networkidle can hang on background traffic even after the page is usable.)
     await expect(page.getByRole('tab').first()).toBeVisible({ timeout: 30000 });
   }
 
   test('TC-1/TC-2: Audit tiles are visible on home page', async ({ page }) => {
     test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-1'), 'Excluded by Excel — Run Shakeout = No');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     const auditLinks = page.locator('a[href*="/audit/"]').first();
     await expect(auditLinks).toBeVisible({ timeout: 30000 });
@@ -83,8 +86,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
   test('TC-3: Search box is visible', async ({ page }) => {
     test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-3'), 'Excluded by Excel — Run Shakeout = No');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     const searchBox = page.locator('input[placeholder*="Search audit"], input[placeholder*="Search"]').first();
     await expect(searchBox).toBeVisible({ timeout: 30000 });
@@ -93,8 +95,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
   test('TC-4: Search by framework name filters matching audits', async ({ page }) => {
     test.skip(!shouldRun('TG-6', 'Scenario 6', 'TC-4'), 'Excluded by Excel — Run Shakeout = No');
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     const searchBox = page.locator('input[placeholder*="Search audit"], input[placeholder*="Search"]').first();
     if (!(await searchBox.isVisible({ timeout: 10000 }).catch(() => false))) {
@@ -104,7 +105,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     await searchBox.fill('SOC');
     // Wait for filter to take effect — audit list should update
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
     const auditTiles = page.locator('a[href*="/audit/"]');
     const filteredCount = await auditTiles.count();
     expect(filteredCount).toBeGreaterThanOrEqual(0);
@@ -126,7 +127,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     }
 
     await searchBox.fill(searchTerm);
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const mainContent = page.locator('main').first();
     await expect(mainContent).toBeVisible({ timeout: 30000 });
@@ -158,7 +159,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
     await dashboardTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const errorText = page.getByText(/error|500|something went wrong/i);
     await expect(errorText).not.toBeVisible({ timeout: 5000 });
@@ -171,7 +172,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     // Wait for workspace content to load (table or list)
     await expect(page.locator('main').first()).toBeVisible({ timeout: 30000 });
@@ -186,7 +187,9 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const iaTab = page.getByRole('tab', { name: /internal audit|ia/i });
     await iaTab.click();
-    await page.waitForLoadState('networkidle');
+    // The tab panel is server-rendered on click; the error-absence assertion
+    // below has its own timeout. Avoid networkidle (hangs on background traffic).
+    await page.waitForTimeout(1000);
 
     const errorText = page.getByText(/error|500|something went wrong/i);
     await expect(errorText).not.toBeVisible({ timeout: 5000 });
@@ -199,7 +202,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const docTab = page.getByRole('tab', { name: /document/i });
     await docTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const errorText = page.getByText(/error|500|something went wrong/i);
     await expect(errorText).not.toBeVisible({ timeout: 5000 });
@@ -212,7 +215,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const apTab = page.getByRole('tab', { name: /action plan/i });
     await apTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const errorText = page.getByText(/error|500|something went wrong/i);
     await expect(errorText).not.toBeVisible({ timeout: 5000 });
@@ -225,7 +228,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
     await dashboardTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const acceptedTile = page.getByText(/accepted|controls accepted/i).first();
     await expect(acceptedTile).toBeVisible({ timeout: 30000 });
@@ -238,7 +241,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
     await dashboardTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const updatesTile = page.getByText(/controls that need update|need update/i).first();
     await expect(updatesTile).toBeVisible({ timeout: 30000 });
@@ -251,7 +254,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
     await dashboardTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const dueTile = page.getByText(/controls due this week|due this week/i).first();
     await expect(dueTile).toBeVisible({ timeout: 30000 });
@@ -264,7 +267,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
     await dashboardTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const chart = page.locator('svg, canvas, [class*="chart"], [class*="donut"]').first();
     await expect(chart).toBeVisible({ timeout: 30000 });
@@ -277,7 +280,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
     await dashboardTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const viewAllBtn = page.locator('button, a').filter({ hasText: /view all/i }).first();
     await expect(viewAllBtn).toBeVisible({ timeout: 30000 });
@@ -290,7 +293,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
     await dashboardTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     const recentActivity = page.getByText(/recent activity/i).first();
     await expect(recentActivity).toBeVisible({ timeout: 30000 });
@@ -303,7 +306,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
     await dashboardTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     // Verify status labels with numbers are visible
     const notStarted = page.getByText(/not started/i).first();
@@ -322,7 +325,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const dashboardTab = page.getByRole('tab', { name: /dashboard/i });
     await dashboardTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     // Verify there are numeric values displayed near status labels
     const numbers = page.locator('[class*="stat"], [class*="count"], [class*="number"], [class*="metric"]').first();
@@ -341,7 +344,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     // Verify workspace sub-tabs are present (scoped to workspace panel)
     // Framework-dependent naming:
@@ -372,13 +375,13 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     // Click Families/Category tab (SOC 2: "Families", CyFun: "Categories")
     const familiesTab = page.locator('#tabpanel-ws').locator('text=/Families|Categories/i').first();
     if (await familiesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await familiesTab.click();
-      await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
       // Verify content loads (table or list)
       const content = page.locator('table, [role="table"], [role="grid"], main').first();
@@ -395,13 +398,13 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     // Click Objectives/Sub-Category tab (SOC 2: "Objectives", CyFun: "Subcategories")
     const objectivesTab = page.locator('#tabpanel-ws').locator('text=/Objectives|Subcategories/i').first();
     if (await objectivesTab.isVisible({ timeout: 5000 }).catch(() => false)) {
       await objectivesTab.click();
-      await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
       const content = page.locator('table, [role="table"], [role="grid"], main').first();
       await expect(content).toBeVisible({ timeout: 15000 });
@@ -417,7 +420,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
     await page.waitForTimeout(2000);
 
     // Framework-dependent labels:
@@ -438,7 +441,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const workspaceTab = page.getByRole('tab', { name: /audit workspace|workspace/i });
     await workspaceTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
     await page.waitForTimeout(2000);
 
     // Button label is framework-dependent: "Add control" (SOC 2) or "Add requirement" (CyFun) or similar
@@ -460,7 +463,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
 
     const iaTab = page.getByRole('tab', { name: /internal audit|ia/i });
     await iaTab.click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
 
     // Verify IA sub-tabs are present
     const readyTab = page.locator('button, a, [role="tab"]').filter({ hasText: /ready for review|ready/i }).first();
@@ -478,3 +481,4 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
     console.log(`  📋 IA tabs: Ready=${hasReady}, NeedsUpdates=${hasUpdates}, Accepted=${hasAccepted}, Findings=${hasFindings}`);
   });
 });
+
