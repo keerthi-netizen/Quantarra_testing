@@ -113,7 +113,7 @@ test.describe('Core API Endpoints — Availability', () => {
 
     for (const endpoint of endpoints) {
       const start = Date.now();
-      const headers = endpoint === '/health' ? {} : { Authorization: `Bearer ${token}` };
+      const headers: Record<string, string> = endpoint === '/health' ? {} : { Authorization: `Bearer ${token}` };
       await request.get(`${API}${endpoint}`, { headers });
       const elapsed = Date.now() - start;
 

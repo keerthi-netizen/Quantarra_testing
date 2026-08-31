@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { checkGate } from '../daily-shakeout/session-setup';
 import { shouldRunE2E } from '../daily-shakeout/excel-filter';
 import { getEnvConfig } from '../../src/config/environment';
@@ -74,7 +74,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   });
 
   /** Helper: navigate to home, search for the correct audit, and click it */
-  async function navigateToAudit(page) {
+  async function navigateToAudit(page: Page) {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -96,7 +96,7 @@ test.describe.serial('E2E Flow 2: Assign Control to User', () => {
   }
 
   /** Helper: navigate to audit → Workspace → All Controls tab */
-  async function navigateToAllControls(page) {
+  async function navigateToAllControls(page: Page) {
     await navigateToAudit(page);
 
     const wsTab = page.getByRole('tab', { name: /workspace/i });

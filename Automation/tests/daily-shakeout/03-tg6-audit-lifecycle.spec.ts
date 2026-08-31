@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { dismissWizard } from '../../src/helpers/auth';
 import { getShakeoutAdmin } from './test-data';
 import { shouldRun } from './excel-filter';
@@ -28,7 +28,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
   const TARGET_FRAMEWORK = 'SOC 2 Type 2';
 
   /** Helper: navigate to home and wait for audit tiles to load */
-  async function goHomeAndWaitForAudits(page) {
+  async function goHomeAndWaitForAudits(page: Page) {
     // Use domcontentloaded, NOT networkidle. On staging/prod the home page keeps
     // background traffic (analytics/websocket/AI-context) alive, so networkidle
     // can hang until the 60s timeout even after the page is fully usable. Wait
@@ -44,7 +44,7 @@ test.describe('TG-6: Audit Lifecycle — Search and Load Existing Audit', () => 
    * Uses the search box to filter to SOC 2, then clicks the matching audit tile.
    * Falls back to the first audit if no SOC 2 Type 2 audit is found.
    */
-  async function navigateToFirstAudit(page) {
+  async function navigateToFirstAudit(page: Page) {
     await goHomeAndWaitForAudits(page);
 
     // Filter the audit list via search box (reduces list, makes selection reliable)
