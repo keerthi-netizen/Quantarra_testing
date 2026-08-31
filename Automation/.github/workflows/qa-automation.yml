@@ -1,9 +1,8 @@
 name: QA Automation
 
 on:
-  # Scheduled daily shakeout — runs every day at 6:00 AM IST (00:30 UTC)
-  schedule:
-    - cron: '30 0 * * *'
+  # No scheduled run — trigger manually from the Actions tab when needed.
+  # (The daily shakeout is scheduled in .github/workflows/daily-shakeout.yml at 10:00 AM IST.)
 
   # Manual trigger (from this repo's Actions tab)
   workflow_dispatch:
@@ -108,12 +107,14 @@ jobs:
       ENV: ${{ inputs.environment || 'staging' }}
       FRAMEWORK_TYPE: ${{ inputs.framework || 'N/A' }}
       TEST_SCENARIO: ${{ inputs.scenario || 'Daily Shakeout (Excel-driven)' }}
-      # --- Credentials (use secrets if passed, fallback to defaults) ---
-      ADMIN_EMAIL: keerthikumar.kothandapani@gmail.com
+      # --- Credentials ---
+      # IMPORTANT: Do NOT set unprefixed *_EMAIL vars here. They would override
+      # the per-environment emails in config/environments.json (environment.ts
+      # prioritises process.env over the JSON), causing POC/Prod runs to log in
+      # with the STAGING account. Emails are resolved per-env from the JSON.
+      # Only passwords/tokens (shared across envs) are injected as secrets.
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || 'Quantarra2026!' }}
-      CONTRIBUTOR_EMAIL: prasanna.d@keystoneeng.in
       CONTRIBUTOR_PASSWORD: ${{ secrets.CONTRIBUTOR_PASSWORD || 'Quantarra2026!' }}
-      MC_ADMIN_EMAIL: keerthi@quantarra.io
       MC_ADMIN_PASSWORD: ${{ secrets.MC_ADMIN_PASSWORD || 'Quantarra2026!' }}
       # --- URLs ---
       STAGING_BASE_URL: https://stg.quantarra.com
@@ -122,7 +123,8 @@ jobs:
       STAGING_API_URL: https://stg.quantarra.com/api/v1
       POC_BASE_URL: https://poc.quantarra.com
       POC_MC_URL: https://mc.poc.quantarra.com
-      POC_AUDIT_URL: https://audit-stg.quantarra.com
+      # NOTE: POC audit portal may not be deployed yet.
+      POC_AUDIT_URL: https://audit-poc.quantarra.com
       POC_API_URL: https://poc.quantarra.com/api/v1
       PROD_BASE_URL: https://app.quantarra.com
       PROD_MC_URL: https://mc.quantarra.com

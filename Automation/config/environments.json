@@ -8,8 +8,8 @@
     },
     "poc": {
       "baseUrl": "https://poc.quantarra.com",
-      "mcUrl": "https://poc.quantarra.com:4002",
-      "auditUrl": "https://poc.quantarra.com:4003",
+      "mcUrl": "https://mc.poc.quantarra.com",
+      "auditUrl": "https://audit-poc.quantarra.com",
       "apiUrl": "https://poc.quantarra.com/api/v1"
     },
     "prod": {
