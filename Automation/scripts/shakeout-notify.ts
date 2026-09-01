@@ -128,6 +128,7 @@ function categorizeTests(results: EnvResults): ScenarioSummary[] {
     { name: 'Navigation - Workspace (Contributor)', match: (t) => t.includes('TG-3') || t.includes('Contributor Navigation') },
     { name: 'Admin Tab', match: (t) => t.includes('TG-4') || t.includes('Admin Tab') },
     { name: 'Audit Lifecycle - Existing Audit', match: (t) => t.includes('TG-6') || t.includes('Audit Lifecycle') },
+    { name: 'Audit Workspace Filters', match: (t) => t.includes('TG-7') || t.includes('Filter per sub-tab') },
     { name: 'MC Availability', match: (t) => t.includes('MC') || t.includes('Mission Control') },
     { name: 'Audit Portal Availability', match: (t) => t.includes('Audit Portal') },
     { name: 'API Endpoints', match: (t) => t.includes('API') || t.includes('Core API') },
